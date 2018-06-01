@@ -126,8 +126,8 @@ class OnDemandSoftwareProvider {
           SoftwareVersion soft_ver{};
 
           if (error_code) {
-            // TODO Something wrong on DBus, the error_code is not important at this
-            // moment, just return success=false, and empty output.
+            // TODO Something wrong on DBus, the error_code is not important at
+            // this moment, just return success=false, and empty output.
             callback(false, soft_ver);
             return;
           }
@@ -144,7 +144,8 @@ class OnDemandSoftwareProvider {
                 const std::string &iface_id = objpath.first.value;
                 std::size_t last_pos = iface_id.rfind("/");
                 if (last_pos != std::string::npos) {
-                  extractSoftwareVersionIfaceData(iface_id.substr(last_pos + 1), resp, soft_ver);
+                  extractSoftwareVersionIfaceData(iface_id.substr(last_pos + 1),
+                                                  resp, soft_ver);
                 }
               }
             }
@@ -153,7 +154,8 @@ class OnDemandSoftwareProvider {
           // Finally make a callback with usefull data
           callback(true, soft_ver);
         },
-        {"xyz.openbmc_project.Software.BMC.Updater", "/xyz/openbmc_project/software",
+        {"xyz.openbmc_project.Software.BMC.Updater",
+         "/xyz/openbmc_project/software",
          "org.freedesktop.DBus.ObjectManager", "GetManagedObjects"});
   };
 };
