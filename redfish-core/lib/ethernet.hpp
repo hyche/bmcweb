@@ -17,6 +17,7 @@
 
 #include "node.hpp"
 #include <boost/container/flat_map.hpp>
+#include <boost/algorithm/string/split.hpp>
 
 namespace redfish {
 
@@ -58,6 +59,15 @@ struct EthernetInterfaceData {
   const std::string *mac_address;
   const unsigned int *vlan_id;
 };
+
+/**
+ * Check if character is hexadecimal digit
+ */
+inline bool is_xdigit(const unsigned char &character) {
+  return ((character >= '0' && character <= '9') || \
+          (character >= 'A' && character <= 'F') || \
+          (character >= 'a' && character <= 'f')) ? true: false;
+}
 
 /**
  * OnDemandEthernetProvider
@@ -501,6 +511,165 @@ class EthernetInterface : public Node {
           }
           res.end();
         });
+  }
+
+  void doPatch(crow::response& res, const crow::request& req,
+                       const std::vector<std::string>& params) override {
+    // TODO This shall be parametrized call (two params) to get
+    // EthernetInterfaces for any Manager, not only hardcoded 'openbmc'.
+    // Check if there is required param, truly entering this shall be
+    // impossible.
+    if (params.size() != 1) {
+      res.code = static_cast<int>(HttpRespCode::INTERNAL_ERROR);
+      res.end();
+      return;
+    }
+
+    // Parse request data to JSON object
+    auto request_json_obj = nlohmann::json::parse(req.body, nullptr, false);
+    if (request_json_obj.is_discarded()) {
+      res.code = static_cast<int>(HttpRespCode::BAD_REQUEST);
+      res.end();
+      return;
+    }
+
+    // For Patch method, it should be only 1 JSON element
+    if (request_json_obj.size() == 1) {
+      nlohmann::json::iterator it = request_json_obj.begin();
+      // Extract property name
+      std::string property_name = it.key();
+      if (property_name == "MACAddress") {
+        // Extract property value
+        const std::string &property_set_value = it->get<const std::string>();
+        doSetMacAddress(property_set_value, res, req, params);
+      } else {
+        res.code = static_cast<int>(HttpRespCode::BAD_REQUEST);
+        res.end();
+        return;
+      }
+    } else {
+      res.code = static_cast<int>(HttpRespCode::BAD_REQUEST);
+      res.end();
+      return;
+    }
+  }
+
+  void doSetMacAddress(const std::string &property_value, crow::response& res,
+                      const crow::request& req,
+                      const std::vector<std::string>& params) {
+    const std::string iface_id = params[0];
+    const std::string &base_object_path = "/xyz/openbmc_project/network";
+    const std::string &main_object_path = "/xyz/openbmc_project/network/" +
+                                                                      iface_id;
+    const std::string &process_name = "xyz.openbmc_project.Network";
+    std::string dest_property = "MACAddress";
+
+    // Validate MACAddress value.
+    if (!isValidMacAddress(property_value)) {
+      CROW_LOG_ERROR << "Incorrect MACAddress value: not local address";
+      res.code = static_cast<int>(HttpRespCode::BAD_REQUEST);
+      res.end();
+      return;
+    }
+
+    // List all interface of base_object_path.
+    crow::connections::system_bus->async_method_call(
+        [
+          &,
+          main_object_path,
+          process_name,
+          dest_property{std::move(dest_property)},
+          property_value
+        ](
+          const boost::system::error_code error_code,
+          const GetManagedObjectsType &resp) {
+
+          if (error_code) {
+            CROW_LOG_ERROR << "Internal Error";
+            res.code = static_cast<int>(HttpRespCode::INTERNAL_ERROR);
+            res.end();
+            return;
+          }
+
+          const auto &dbus_objpath = dbus::object_path{main_object_path};
+          const auto &objpath = resp.find(dbus_objpath);
+          if (objpath != resp.end()) {
+            // Iterate for all interfaces available for specified ObjectPath.
+            for (auto &interface : objpath->second) {
+              if (interface.first.find(process_name) != std::string::npos) {
+                crow::connections::system_bus->async_method_call(
+                  [
+                    &, main_object_path,
+                    process_name,
+                    interface{std::move(interface)},
+                    dest_property{std::move(dest_property)},
+                    property_value
+                  ](const boost::system::error_code ec,
+                    const PropertiesMapType &properties) {
+                    if (ec) {
+                      CROW_LOG_ERROR << "Bad D-Bus request error: " << ec;
+                      res.code = static_cast<int>
+                                              (HttpRespCode::INTERNAL_ERROR);
+                      res.end();
+                      return;
+                    } else {
+                      auto it = properties.find(dest_property);
+                      if (it != properties.end()) {
+                        // Create the D-Bus variant for D-Bus call.
+                        dbus::dbus_variant dbus_property_value(property_value);
+
+                        crow::connections::system_bus->async_method_call(
+                          [&](const boost::system::error_code ec) {
+                            // Use "Set" method to set the property value.
+                            if (ec) {
+                              CROW_LOG_ERROR << "Bad D-Bus request error: "
+                                              << ec;
+                              res.code = static_cast<int>
+                                              (HttpRespCode::INTERNAL_ERROR);
+                              res.end();
+                              return;
+                            }
+                          },
+                          {process_name, main_object_path,
+                          "org.freedesktop.DBus.Properties", "Set"},
+                          interface.first, dest_property, dbus_property_value);
+                      }
+                    }
+                  },
+                  {process_name, main_object_path,
+                  "org.freedesktop.DBus.Properties", "GetAll"},
+                  interface.first);
+              }
+            }
+          }
+        },
+        {process_name, base_object_path,
+        "org.freedesktop.DBus.ObjectManager", "GetManagedObjects"});
+    res.json_value = Node::json;
+    res.end();
+  }
+
+  bool isValidMacAddress(const std::string& mac_address) {
+    int num_digit = 0;
+    int num_substitute = 0;
+    const unsigned char local_address_pos = 1;
+    const unsigned char local_mac_address_mask = (0x01 << local_address_pos);
+
+    for (std::string::const_iterator it = mac_address.begin(); \
+        it != mac_address.end(); ++it) {
+      unsigned char digit = static_cast<unsigned char>(*it);
+      if (is_xdigit(digit)) {
+        ++num_digit;
+        if ((num_digit == 2) && !(digit & local_mac_address_mask)) {
+          return false;
+        }
+      } else if (digit == ':') {
+        ++num_substitute;
+      } else {
+        num_substitute = -1;
+      }
+    }
+    return ((num_digit == 12) && (num_substitute == 5));
   }
 
   // Ethernet Provider object
