@@ -160,9 +160,149 @@ class OnDemandSoftwareProvider {
   };
 };
 
+/**
+ * ManagerActionsReset class supports handle POST method for Reset action.
+ * The class retrieves and sends data directly to dbus.
+ */
+class ManagerActionsReset : public Node {
+ public:
+  ManagerActionsReset(CrowApp& app)
+      : Node(app, "/redfish/v1/Managers/openbmc/Actions/Manager.Reset/") {
+
+    entityPrivileges = {{crow::HTTPMethod::GET, {{"Login"}}},
+                        {crow::HTTPMethod::HEAD, {{"Login"}}},
+                        {crow::HTTPMethod::PATCH, {{"ConfigureManager"}}},
+                        {crow::HTTPMethod::PUT, {{"ConfigureManager"}}},
+                        {crow::HTTPMethod::DELETE, {{"ConfigureManager"}}},
+                        {crow::HTTPMethod::POST, {{"ConfigureManager"}}}};
+  }
+
+ private:
+  /**
+   * Function handles GET method request.
+   * ManagerActionReset supports for POST method,
+   * it is not required to retrieve more information in GET.
+   */
+  void doGet(crow::response& res, const crow::request& req,
+             const std::vector<std::string>& params) override {
+    res.json_value = Node::json;
+    res.end();
+  }
+
+  /**
+   * Function handles POST method request.
+   * Analyzes POST body message before sends Reset request data to dbus.
+   * OpenBMC allows for ResetType is GracefulRestart only.
+   */
+  void doPost(crow::response& res, const crow::request& req,
+             const std::vector<std::string>& params) override {
+    // Parse request data to JSON object
+    auto request_json_obj = nlohmann::json::parse(req.body, nullptr, false);
+    if (request_json_obj.is_discarded()) {
+      res.code = static_cast<int>(HttpRespCode::BAD_REQUEST);
+      CROW_LOG_ERROR << "Incorrect body message for POST.";
+      res.end();
+      return;
+    }
+
+    // Within the Reset action, the POST request should be only 1 JSON element.
+    if (request_json_obj.size() == 1) {
+      nlohmann::json::iterator it = request_json_obj.begin();
+      // Extract data
+      std::string data = it.key();
+      if (data  == "ResetType") {
+        // Extract property value before invoke the corresponding method.
+        const std::string &property_value = it->get<const std::string>();
+        // OpenBMC only allows for GracefulRestart property.
+        if (property_value == "GracefulRestart") {
+          doBMCGracefulRestart(res, req, params);
+        } else {
+          res.code = static_cast<int>(HttpRespCode::BAD_REQUEST);
+          CROW_LOG_ERROR << "Request incorrect property: " << property_value;
+          res.end();
+          return;
+        }
+      } else {
+        res.code = static_cast<int>(HttpRespCode::BAD_REQUEST);
+        CROW_LOG_ERROR << "Incorrect request data: Only ResetType is accepted.";
+        res.end();
+        return;
+      }
+    } else {
+      res.code = static_cast<int>(HttpRespCode::BAD_REQUEST);
+      CROW_LOG_ERROR << "Only one JSON element is accepted in Reset action.";
+      res.end();
+      return;
+    }
+  }
+
+  /**
+   * Function transceives data with dbus directly.
+   * All BMC state properties will be retrieved before sending reset request.
+   */
+  void doBMCGracefulRestart(crow::response& res,
+                            const crow::request& req,
+                            const std::vector<std::string>& params) {
+    const std::string &process_name = "xyz.openbmc_project.State.BMC";
+    const std::string &object_path = "/xyz/openbmc_project/state/bmc0";
+    const std::string &interface_name = "xyz.openbmc_project.State.BMC";
+    const std::string &property_value =
+                            "xyz.openbmc_project.State.BMC.Transition.Reboot";
+    const std::string &dest_property = "RequestedBMCTransition";
+
+    // Create the D-Bus variant for D-Bus call.
+    dbus::dbus_variant dbus_property_value(property_value);
+    crow::connections::system_bus->async_method_call(
+      [&,
+        object_path, process_name,
+        interface_name, dest_property,
+        dbus_property_value{std::move(dbus_property_value)}
+      ](const boost::system::error_code ec,
+        const PropertiesMapType &properties) {
+        if (ec) {
+          CROW_LOG_ERROR << "[GetAll] Bad D-Bus request error: " << ec;
+          res.code = static_cast<int>(HttpRespCode::INTERNAL_ERROR);
+          res.end();
+          return;
+        } else {
+          auto it = properties.find(dest_property);
+          if (it != properties.end()) {
+            crow::connections::system_bus->async_method_call(
+                [&](const boost::system::error_code ec) {
+                  // Use "Set" method to set the property value.
+                  if (ec) {
+                    CROW_LOG_ERROR << "[Set] Bad D-Bus request error: " << ec;
+                    res.code = static_cast<int>(HttpRespCode::INTERNAL_ERROR);
+                    res.end();
+                    return;
+                  }
+                },
+                {process_name, object_path,
+                "org.freedesktop.DBus.Properties", "Set"},
+                interface_name, dest_property, dbus_property_value);
+          } else {
+            CROW_LOG_ERROR << "Not found the requested property: "
+                            << dest_property;
+            res.code = static_cast<int>(HttpRespCode::NOT_FOUND);
+            res.end();
+            return;
+          }
+        }
+      },
+      {process_name, object_path,
+      "org.freedesktop.DBus.Properties", "GetAll"},
+      interface_name);
+    res.code = static_cast<int>(HttpRespCode::NO_CONTENT);
+    CROW_LOG_DEBUG << "Response with no content";
+    res.json_value = Node::json;
+    res.end();
+  }
+};
+
 class Manager : public Node {
  public:
-  Manager(CrowApp& app) : Node(app, "/redfish/v1/Managers/openbmc/") {
+  Manager(CrowApp& app) : Node(app, "/redfish/v1/Managers/openbmc/"),
+                          memberActionsReset(app) {
     Node::json["@odata.id"] = "/redfish/v1/Managers/openbmc";
     Node::json["@odata.type"] = "#Manager.v1_3_0.Manager";
     Node::json["@odata.context"] = "/redfish/v1/$metadata#Manager.Manager";
@@ -173,10 +313,10 @@ class Manager : public Node {
     Node::json["UUID"] =
         app.template get_middleware<crow::PersistentData::Middleware>()
             .system_uuid;
-    Node::json["Model"] = "OpenBmc";               // TODO, get model
+    Node::json["Model"] = "OpenBmc";               // TODO(ed), get model
     Node::json["EthernetInterfaces"] = nlohmann::json(
         {{"@odata.id",
-          "/redfish/v1/Managers/openbmc/EthernetInterfaces"}});  // TODO,
+          "/redfish/v1/Managers/openbmc/EthernetInterfaces"}});  // TODO(Pawel),
                                                                  // remove this
                                                                  // when
                                                                  // subroutes
@@ -205,7 +345,17 @@ class Manager : public Node {
           }
         });
 
-    Node::json["DateTime"] = getDateTime();  // TODO get datetime from DBUS
+    // Update Actions object.
+    nlohmann::json reset_type = nlohmann::json::array();
+    // OpenBMC supports only graceful shutdown followed by a restart.
+    reset_type.push_back("GracefulRestart");
+    nlohmann::json manager_reset;
+    manager_reset["target"] =
+                          "/redfish/v1/Managers/openbmc/Actions/Manager.Reset";
+    manager_reset["ResetType@Redfish.AllowableValues"] = reset_type;
+    Node::json["Actions"]["#Manager.Reset"] = manager_reset;
+
+    Node::json["DateTime"] = getDateTime();
     res.json_value = Node::json;
     res.end();
   }
@@ -224,9 +374,13 @@ class Manager : public Node {
 
     return redfishDateTime;
   }
+
   // Software Provider object
   // TODO consider move it to singleton
   OnDemandSoftwareProvider software_provider;
+  // Actions Reset object as a member of Manager resource.
+  // Handle reset action from POST request.
+  ManagerActionsReset memberActionsReset;
 
 };
 
