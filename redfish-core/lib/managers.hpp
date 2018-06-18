@@ -313,6 +313,16 @@ class Manager : public Node {
     Node::json["UUID"] =
         app.template get_middleware<crow::PersistentData::Middleware>()
             .system_uuid;
+    Node::json["Oem"] = {
+        {"AmpereComputing", {
+            {"@odata.type", "https://amperecomputing.com"},
+            {"ProductionLocation", {
+                {"FacilityName", "Ampere Computing Production Facility"},
+                {"Country", "United States"}
+            }}
+        }}
+    };  // TODO, read the OEM info from FRU or refactor to make it common,
+        // this is hardcoded for now
     Node::json["Model"] = "OpenBmc";               // TODO(ed), get model
     Node::json["EthernetInterfaces"] = nlohmann::json(
         {{"@odata.id",
