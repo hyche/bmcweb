@@ -57,6 +57,8 @@ int main(int argc, char** argv) {
   auto ssl_context = ensuressl::get_ssl_context(ssl_pem_file);
   app.ssl(std::move(ssl_context));
 #endif
+
+  std::cout << "AAAAAAAAA\n";
   // Static assets need to be initialized before Authorization, because auth
   // needs to build the whitelist from the static routes
   crow::webassets::request_routes(app);

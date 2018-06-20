@@ -18,6 +18,7 @@
 #include "node.hpp"
 #include <boost/container/flat_map.hpp>
 #include <boost/algorithm/string/split.hpp>
+#include <iostream>
 
 namespace redfish {
 
@@ -33,6 +34,19 @@ using GetManagedObjectsType = boost::container::flat_map<
     boost::container::flat_map<std::string, PropertiesMapType>>;
 
 using GetAllPropertiesType = PropertiesMapType;
+
+void PrintGMOT(const GetManagedObjectsType& type) {
+    for (const auto& m : type) {
+        std::cout << "object path: " << m.first.value << std::endl;
+        for (const auto& m2: m.second) {
+            std::cout << "\tinterfaces: " << m2.first << std::endl;
+            for (const auto& m3: m2.second) {
+                std::cout << "\t\tproperty name: " << m3.first << std::endl;
+                std::cout << "\t\tpropert value: " << m3.second << std::endl;
+            }
+        }
+    }
+}
 
 /**
  * Structure for keeping IPv4 data required by Redfish
@@ -269,6 +283,8 @@ class OnDemandEthernetProvider {
             return;
           }
 
+          std::cout << "hmmm: IfaceData\n";
+          PrintGMOT(resp);
           extractEthernetInterfaceData(ethiface_id, resp, eth_data);
           extractIPv4Data(ethiface_id, resp, ipv4_data);
 
@@ -313,6 +329,7 @@ class OnDemandEthernetProvider {
           }
 
           // Iterate over all retrieved ObjectPaths.
+          std::cout << "hmmm: IfaceList\n";
           for (auto &objpath : resp) {
             // And all interfaces available for certain ObjectPath.
             for (auto &interface : objpath.second) {
