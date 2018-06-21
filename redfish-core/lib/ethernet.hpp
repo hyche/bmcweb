@@ -69,6 +69,17 @@ struct IPv4AddressData
 };
 
 /**
+ * Structure for keeping IPv6 data required by Redfish
+ */
+struct IPv6AddressData
+{
+    const std::string *address;
+    const std::string *state;
+    const uint8_t *prefix_length;
+    std::string origin;
+};
+
+/**
  * Structure for keeping basic single Ethernet Interface information
  * available from DBus
  */
@@ -291,6 +302,41 @@ class OnDemandEthernetProvider
          * PATCHes
          */
         std::sort(ipv4_config.begin(), ipv4_config.end());
+    }
+
+    // Helper function that extracts data for single ethernet ipv6 address
+    void extractIPv6Data(const std::string &ethifaceId,
+                         const GetManagedObjectsType &dbus_data,
+                         std::vector<IPv6AddressData> &ipv6Config)
+    {
+        // Same process as extractIPv4Data but different properties
+        for (auto &objpath : dbus_data) {
+        if (boost::starts_with(
+              static_cast<const std::string &>(objpath.first),
+              "/xyz/openbmc_project/network/" + ethifaceId + "/ipv6/")) {
+        const auto &interface =
+            objpath.second.find("xyz.openbmc_project.Network.IP");
+        if (interface != objpath.second.end()) {
+          const PropertiesMapType &properties = interface->second;
+
+          IPv6AddressData ipv6Address;
+          ipv6Address.address =
+              extractProperty<std::string>(properties, "Address");
+          const std::string *origin =
+              extractProperty<std::string>(properties, "Origin");
+          if (origin != nullptr) {
+            int last = origin->rfind(".");
+            if (last != std::string::npos) {
+              ipv6Address.origin = origin->substr(last + 1);
+            }
+          }
+          ipv6Address.prefix_length=
+              extractProperty<uint8_t>(properties, "PrefixLength");
+
+          ipv6Config.emplace_back(std::move(ipv6Address));
+        }
+      }
+    }
     }
 
     static const constexpr int ipV4AddressSectionsCount = 4;
@@ -738,6 +784,7 @@ class OnDemandEthernetProvider
                 EthernetInterfaceData ethData{};
                 std::vector<IPv4AddressData> ipv4Data;
                 ipv4Data.reserve(maxIpV4AddressesPerInterface);
+                std::vector<IPv6AddressData> ipv6Data;
 
                 if (error_code)
                 {
@@ -746,7 +793,7 @@ class OnDemandEthernetProvider
                     // output. Since size of vector may vary depending on
                     // information from Network Manager, and empty output could
                     // not be treated same way as error.
-                    callback(false, ethData, ipv4Data);
+                    callback(false, ethData, ipv4Data, ipv6Data);
                     return;
                 }
 
@@ -755,12 +802,13 @@ class OnDemandEthernetProvider
                     resp.end())
                 {
                     // Interface has not been found
-                    callback(false, ethData, ipv4Data);
+                    callback(false, ethData, ipv4Data, ipv6Data);
                     return;
                 }
 
                 extractEthernetInterfaceData(ethifaceId, resp, ethData);
                 extractIPv4Data(ethifaceId, resp, ipv4Data);
+                extractIPv6Data(ethifaceId, resp, ipv6Data);
 
                 // Fix global GW
                 for (IPv4AddressData &ipv4 : ipv4Data)
@@ -773,7 +821,7 @@ class OnDemandEthernetProvider
                 }
 
                 // Finally make a callback with useful data
-                callback(true, ethData, ipv4Data);
+                callback(true, ethData, ipv4Data, ipv6Data);
             },
             "xyz.openbmc_project.Network", "/xyz/openbmc_project/network",
             "org.freedesktop.DBus.ObjectManager", "GetManagedObjects");
@@ -1371,7 +1419,8 @@ class EthernetInterface : public Node
     nlohmann::json
         parseInterfaceData(const std::string &ifaceId,
                            const EthernetInterfaceData &eth_data,
-                           const std::vector<IPv4AddressData> &ipv4_data)
+                           const std::vector<IPv4AddressData> &ipv4_data,
+                           const std::vector<IPv6AddressData> &ipv6_data)
     {
         // Copy JSON object to avoid race condition
         nlohmann::json jsonResponse(Node::json);
@@ -1428,8 +1477,25 @@ class EthernetInterface : public Node
             jsonResponse["IPv4Addresses"] = std::move(ipv4Array);
         }
 
+        if (!ipv6_data.empty())
+        {
+            nlohmann::json ipv6Array = nlohmann::json::array();
+            for (const IPv6AddressData &ipv6Config : ipv6_data)
+            {
+                if (ipv6Config.address != nullptr)
+                {
+                    ipv6Array.push_back({
+                        {"Address", *ipv6Config.address},
+                        {"AddressOrigin", ipv6Config.origin},
+                        {"PrefixLength", *ipv6Config.prefix_length}
+                    });
+                }
+             }
+          jsonResponse["IPv6Addresses"] = std::move(ipv6Array);
+        }
+
         return jsonResponse;
-    }
+      }
 
     /**
      * Functions triggers appropriate requests on DBus
@@ -1456,11 +1522,12 @@ class EthernetInterface : public Node
             ifaceId,
             [&, ifaceId](const bool &success,
                          const EthernetInterfaceData &eth_data,
-                         const std::vector<IPv4AddressData> &ipv4_data) {
+                         const std::vector<IPv4AddressData> &ipv4_data,
+                         const std::vector<IPv6AddressData> &ipv6_data) {
                 if (success)
                 {
                     res.jsonValue =
-                        parseInterfaceData(ifaceId, eth_data, ipv4_data);
+                        parseInterfaceData(ifaceId, eth_data, ipv4_data, ipv6_data);
                 }
                 else
                 {
@@ -1505,7 +1572,8 @@ class EthernetInterface : public Node
             ifaceId,
             [&, ifaceId, patchReq = std::move(patchReq)](
                 const bool &success, const EthernetInterfaceData &eth_data,
-                const std::vector<IPv4AddressData> &ipv4_data) {
+                const std::vector<IPv4AddressData> &ipv4_data,
+                const std::vector<IPv6AddressData> &ipv6_data) {
                 if (!success)
                 {
                     // ... otherwise return error
@@ -1521,7 +1589,7 @@ class EthernetInterface : public Node
                 }
 
                 res.jsonValue =
-                    parseInterfaceData(ifaceId, eth_data, ipv4_data);
+                    parseInterfaceData(ifaceId, eth_data, ipv4_data, ipv6_data);
 
                 std::shared_ptr<AsyncResp> asyncResp =
                     std::make_shared<AsyncResp>(res);
@@ -1621,7 +1689,8 @@ class VlanNetworkInterface : public Node
         parseInterfaceData(const std::string &parent_ifaceId,
                            const std::string &ifaceId,
                            const EthernetInterfaceData &eth_data,
-                           const std::vector<IPv4AddressData> &ipv4_data)
+                           const std::vector<IPv4AddressData> &ipv4_data,
+                           const std::vector<IPv6AddressData> &ipv6_data)
     {
         // Copy JSON object to avoid race condition
         nlohmann::json jsonResponse(Node::json);
@@ -1688,11 +1757,12 @@ class VlanNetworkInterface : public Node
             ifaceId, [&, parentIfaceId,
                       ifaceId](const bool &success,
                                const EthernetInterfaceData &eth_data,
-                               const std::vector<IPv4AddressData> &ipv4_data) {
+                               const std::vector<IPv4AddressData> &ipv4_data,
+                               const std::vector<IPv6AddressData> &ipv6_data) {
                 if (success && eth_data.vlanId != nullptr)
                 {
                     res.jsonValue = parseInterfaceData(parentIfaceId, ifaceId,
-                                                       eth_data, ipv4_data);
+                                                       eth_data, ipv4_data, ipv6_data);
                 }
                 else
                 {
@@ -1739,7 +1809,8 @@ class VlanNetworkInterface : public Node
             ifaceId,
             [&, parentIfaceId, ifaceId, patchReq = std::move(patchReq)](
                 const bool &success, const EthernetInterfaceData &eth_data,
-                const std::vector<IPv4AddressData> &ipv4_data) {
+                const std::vector<IPv4AddressData> &ipv4_data,
+                const std::vector<IPv6AddressData> &ipv6_data) {
                 if (!success)
                 {
                     // ... otherwise return error
@@ -1755,7 +1826,7 @@ class VlanNetworkInterface : public Node
                 }
 
                 res.jsonValue = parseInterfaceData(parentIfaceId, ifaceId,
-                                                   eth_data, ipv4_data);
+                                                   eth_data, ipv4_data, ipv6_data);
 
                 std::shared_ptr<AsyncResp> asyncResp =
                     std::make_shared<AsyncResp>(res);
@@ -1815,11 +1886,12 @@ class VlanNetworkInterface : public Node
             ifaceId, [&, parentIfaceId,
                       ifaceId](const bool &success,
                                const EthernetInterfaceData &eth_data,
-                               const std::vector<IPv4AddressData> &ipv4_data) {
+                               const std::vector<IPv4AddressData> &ipv4_data,
+                               const std::vector<IPv6AddressData> &ipv6_data) {
                 if (success && eth_data.vlanId != nullptr)
                 {
                     res.jsonValue = parseInterfaceData(parentIfaceId, ifaceId,
-                                                       eth_data, ipv4_data);
+                                                       eth_data, ipv4_data, ipv6_data);
 
                     // Disable VLAN
                     OnDemandEthernetProvider::disableVlan(
