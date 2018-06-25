@@ -23,7 +23,11 @@
 #include "../lib/service_root.hpp"
 #include "../lib/ethernet.hpp"
 #include "../lib/thermal.hpp"
+#ifdef OCP_CUSTOM_FLAG // TODO Add OCP custom flag for include target header
+#include "../lib/ocp-chassis.hpp"
+#else
 #include "../lib/chassis.hpp"
+#endif
 #include "webserver_common.hpp"
 
 namespace redfish {
@@ -52,7 +56,10 @@ class RedfishService {
     nodes.emplace_back(std::make_unique<Thermal>(app));
     nodes.emplace_back(std::make_unique<ManagerCollection>(app));
     nodes.emplace_back(std::make_unique<ChassisCollection>(app));
+#ifndef OCP_CUSTOM_FLAG // TODO Remove Chassis node
+                        // which unused in case definition of OCP custom flag
     nodes.emplace_back(std::make_unique<Chassis>(app));
+#endif
 
     for (auto& node : nodes) {
       node->getSubRoutes(nodes);

@@ -113,6 +113,9 @@ endif()
 
 add_definitions("-Wno-attributes")
 
+# TODO Enable OCP custom flag
+add_definitions(-DOCP_CUSTOM_FLAG)
+
 # Boost-dbus
 find_package(boost-dbus REQUIRED)
 
