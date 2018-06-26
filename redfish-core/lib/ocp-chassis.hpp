@@ -1,6 +1,6 @@
 /*
+// Copyright (c) 2018 Intel Corporation
 // Copyright (c) 2018 Ampere Computing LLC
-// Author: Tung Vu <tung.vu@amperecomputing.com>
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -13,7 +13,9 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-//
+*/
+
+/*
 // The OCP chassis module supports to retrieve chassis inventory via D-Bus.
 // It's used to replace the redfish-core/lib/chassis.hpp module
 // (https://github.com/openbmc/bmcweb).
