@@ -67,7 +67,7 @@ public:
 
 /**
  * OnDemandChassisProvider
- * Chassis provider class that retrieves data directly from dbus, before seting
+ * Chassis provider class that retrieves data directly from D-Bus, before seting
  * it into JSON output. This does not cache any data.
  *
  * Class can be a good example on how to scale different data providing
@@ -80,6 +80,46 @@ public:
 class OnDemandChassisProvider {
  public:
   /**
+  * Function that retrieves all properties for given Chassis Object.
+  * @param[in] aResp     Shared pointer for completing asynchronous calls.
+  * @return None.
+  */
+  void get_chassis_data(const std::shared_ptr<ChassisAsyncResp> aResp) {
+    crow::connections::system_bus->async_method_call(
+        [aResp{std::move(aResp)}](
+            const boost::system::error_code error_code,
+            const PropertiesType &properties) {
+          // Callback requires flat_map<string, string> so prepare one.
+          boost::container::flat_map<std::string, std::string> output;
+          if (error_code) {
+            CROW_LOG_ERROR << "D-Bus response error: " << error_code;
+            aResp->setErrorStatus();
+            return;
+          }
+          // Prepare all the schema required fields which retrieved from D-Bus.
+          for (const char *p :
+               std::array<const char *, 5>
+                   {"Name",
+                    "Manufacturer",
+                    "Model",
+                    "PartNumber",
+                    "SerialNumber"}) {
+            PropertiesType::const_iterator it = properties.find(p);
+            if (it != properties.end()) {
+              const std::string *s = boost::get<std::string>(&it->second);
+              if (s != nullptr) {
+                aResp->res.json_value[p] = *s;
+              }
+            }
+          }
+        },
+        {"xyz.openbmc_project.Inventory.Manager",
+         "/xyz/openbmc_project/inventory/system/chassis",
+         "org.freedesktop.DBus.Properties", "GetAll"},
+        "xyz.openbmc_project.Inventory.Decorator.Asset");
+  }
+
+  /**
    * @brief Retrieves chassis state properties over D-Bus
    *
    * @param[in] aResp     Shared pointer for completing asynchronous calls.
@@ -91,7 +131,7 @@ class OnDemandChassisProvider {
         [aResp{std::move(aResp)}](const boost::system::error_code ec,
                                   const PropertiesType &properties) {
           if (ec) {
-            CROW_LOG_DEBUG << "D-Bus response error " << ec;
+            CROW_LOG_ERROR << "D-Bus response error " << ec;
             return;
           }
           CROW_LOG_DEBUG << "Got " << properties.size()
@@ -185,6 +225,14 @@ class Chassis : public Node {
                             {{{"@odata.id", "/redfish/v1/Managers/1"}}};
 
     asyncResp->res.json_value = json_response;
+
+    // Get chassis information:
+    //        Manufacturer,
+    //        Name,
+    //        SerialNumber,
+    //        PartNumber,
+    //        Model
+    chassis_provider.get_chassis_data(asyncResp);
 
     // Get chassis state:
     //        PowerState,
