@@ -66,6 +66,65 @@ public:
 };
 
 /**
+ * OnDemandChassisProvider
+ * Chassis provider class that retrieves data directly from dbus, before seting
+ * it into JSON output. This does not cache any data.
+ *
+ * Class can be a good example on how to scale different data providing
+ * solutions to produce single schema output.
+ *
+ * TODO
+ * This perhaps shall be different file, which has to be chosen on compile time
+ * depending on OEM needs
+ */
+class OnDemandChassisProvider {
+ public:
+  /**
+   * @brief Retrieves chassis state properties over D-Bus
+   *
+   * @param[in] aResp     Shared pointer for completing asynchronous calls.
+   * @return None.
+   */
+  void get_chassis_state(const std::shared_ptr<ChassisAsyncResp> aResp) {
+    CROW_LOG_DEBUG << "Get Chassis information.";
+    crow::connections::system_bus->async_method_call(
+        [aResp{std::move(aResp)}](const boost::system::error_code ec,
+                                  const PropertiesType &properties) {
+          if (ec) {
+            CROW_LOG_DEBUG << "D-Bus response error " << ec;
+            return;
+          }
+          CROW_LOG_DEBUG << "Got " << properties.size()
+                                  << " chassis properties.";
+          PropertiesType::const_iterator it =
+                                        properties.find("CurrentPowerState");
+          if (it != properties.end()) {
+            const std::string *s = boost::get<std::string>(&it->second);
+            if (s != nullptr) {
+              const std::size_t pos = s->rfind('.');
+              if (pos != std::string::npos) {
+                // Verify Chassis state
+                if (s->substr(pos + 1) == "On") {
+                  aResp->res.json_value["PowerState"] = "On";
+                  aResp->res.json_value["Status"]["State"] = "Enabled";
+                } else {
+                  aResp->res.json_value["PowerState"] = "Off";
+                  aResp->res.json_value["Status"]["State"] = "Disabled";
+                }
+                // TODO Currenlty, not support "Health" property yet
+                aResp->res.json_value["Status"]["Health"] = "";
+              }
+            }
+          }
+        },
+        {"xyz.openbmc_project.State.Chassis",
+        "/xyz/openbmc_project/state/chassis0",
+        "org.freedesktop.DBus.Properties", "GetAll"},
+        "xyz.openbmc_project.State.Chassis");
+  }
+};
+
+/**
  * Chassis override class for delivering Chassis Schema
  */
 class Chassis : public Node {
@@ -85,6 +144,11 @@ class Chassis : public Node {
     // TODO Currently not support "SKU" and "AssetTag" yet
     Node::json["SKU"] = "";
     Node::json["AssetTag"] = "";
+    // TODO Initial State for chassis
+    Node::json["PowerState"] = "Off";
+    Node::json["Status"]["State"] = "Disabled";
+    Node::json["Status"]["Health"] = "";
+
 
     entityPrivileges = {{crow::HTTPMethod::GET, {{"Login"}}},
                         {crow::HTTPMethod::HEAD, {{"Login"}}},
@@ -122,9 +186,17 @@ class Chassis : public Node {
 
     asyncResp->res.json_value = json_response;
 
+    // Get chassis state:
+    //        PowerState,
+    //        Status:
+    //          State,
+    //          Health
+    chassis_provider.get_chassis_state(asyncResp);
   }
 
-  // TODO Chassis Provider object will be declared here
+  // Chassis Provider object
+  // TODO consider move it to singleton
+  OnDemandChassisProvider chassis_provider;
 };
 
 /**
