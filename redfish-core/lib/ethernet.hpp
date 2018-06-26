@@ -17,7 +17,6 @@
 
 #include "node.hpp"
 #include <boost/container/flat_map.hpp>
-#include <boost/algorithm/string/split.hpp>
 
 namespace redfish {
 
