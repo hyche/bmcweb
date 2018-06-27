@@ -481,6 +481,73 @@ class EthernetInterface : public Node {
   }
 
  private:
+  nlohmann::json parseInterfaceData(
+      const std::string &iface_id, const EthernetInterfaceData &eth_data,
+      const std::vector<IPv4AddressData> &ipv4_data,
+      const std::vector<IPv6AddressData> &ipv6_data) {
+    // Copy JSON object to avoid race condition
+    nlohmann::json json_response(Node::json);
+
+    // Fill out obvious data...
+    json_response["Id"] = iface_id;
+    json_response["@odata.id"] =
+        "/redfish/v1/Managers/openbmc/EthernetInterfaces/" + iface_id;
+
+    // ... then the one from DBus, regarding eth iface...
+    if (eth_data.speed != nullptr) json_response["SpeedMbps"] = *eth_data.speed;
+
+    if (eth_data.mac_address != nullptr)
+      json_response["MACAddress"] = *eth_data.mac_address;
+
+    if (eth_data.hostname != nullptr)
+      json_response["HostName"] = *eth_data.hostname;
+
+    if (eth_data.vlan_id != nullptr) {
+      nlohmann::json &vlanObj = json_response["VLAN"];
+      vlanObj["VLANEnable"] = true;
+      vlanObj["VLANId"] = *eth_data.vlan_id;
+    }
+
+    // check if there are IPv4 data
+    if (!ipv4_data.empty()) {
+      nlohmann::json ipv4_array = nlohmann::json::array();
+      for (auto &ipv4_config : ipv4_data) {
+        nlohmann::json json_ipv4;
+        if (ipv4_config.address != nullptr) {
+          json_ipv4["Address"] = *ipv4_config.address;
+          if (ipv4_config.gateway != nullptr)
+            json_ipv4["Gateway"] = *ipv4_config.gateway;
+
+          json_ipv4["AddressOrigin"] = ipv4_config.origin;
+          json_ipv4["SubnetMask"] = ipv4_config.netmask;
+
+          ipv4_array.push_back(std::move(json_ipv4));
+        }
+      }
+      json_response["IPv4Addresses"] = std::move(ipv4_array);
+    }
+
+    // check if there are IPv6 data
+    if (!ipv6_data.empty()) {
+      nlohmann::json ipv6_array = nlohmann::json::array();
+      for (auto &ipv6_config : ipv6_data) {
+        nlohmann::json json_ipv6;
+        if (ipv6_config.address != nullptr) {
+          json_ipv6["Address"] = *ipv6_config.address;
+          json_ipv6["AddressOrigin"] = ipv6_config.origin;
+          json_ipv6["PrefixLength"] = *ipv6_config.prefix_length;
+          // TODO: Support Oem property
+          //       Support AddressState property (RFC 4682)
+
+          ipv6_array.push_back(std::move(json_ipv6));
+        }
+      }
+      json_response["IPv6Addresses"] = std::move(ipv6_array);
+   }
+
+    return json_response;
+  }
+
   /**
    * Functions triggers appropriate requests on DBus
    */
@@ -506,67 +573,8 @@ class EthernetInterface : public Node {
                                 const std::vector<IPv4AddressData> &ipv4_data,
                                 const std::vector<IPv6AddressData> &ipv6_data) {
           if (success) {
-            // Copy JSON object to avoid race condition
-            nlohmann::json json_response(Node::json);
-
-            // Fill out obvious data...
-            json_response["Id"] = iface_id;
-            json_response["@odata.id"] =
-                "/redfish/v1/Managers/openbmc/EthernetInterfaces/" + iface_id;
-
-            // ... then the one from DBus, regarding eth iface...
-            if (eth_data.speed != nullptr)
-              json_response["SpeedMbps"] = *eth_data.speed;
-
-            if (eth_data.mac_address != nullptr)
-              json_response["MACAddress"] = *eth_data.mac_address;
-
-            if (eth_data.hostname != nullptr)
-              json_response["HostName"] = *eth_data.hostname;
-
-            if (eth_data.vlan_id != nullptr) {
-              json_response["VLAN"]["VLANEnable"] = true;
-              json_response["VLAN"]["VLANId"] = *eth_data.vlan_id;
-            }
-
-            // ... at last, check if there are IPv4 data and prepare appropriate
-            // collection
-            if (ipv4_data.size() > 0) {
-              nlohmann::json ipv4_array = nlohmann::json::array();
-              for (auto &ipv4_config : ipv4_data) {
-                nlohmann::json json_ipv4;
-                if (ipv4_config.address != nullptr) {
-                  json_ipv4["Address"] = *ipv4_config.address;
-                  if (ipv4_config.gateway != nullptr)
-                    json_ipv4["Gateway"] = *ipv4_config.gateway;
-
-                  json_ipv4["AddressOrigin"] = ipv4_config.origin;
-                  json_ipv4["SubnetMask"] = ipv4_config.netmask;
-
-                  ipv4_array.push_back(json_ipv4);
-                }
-              }
-              json_response["IPv4Addresses"] = ipv4_array;
-            }
-
-            if (!ipv6_data.empty()) {
-              nlohmann::json ipv6_array = nlohmann::json::array();
-              for (auto &ipv6_config : ipv6_data) {
-                nlohmann::json json_ipv6;
-                if (ipv6_config.address != nullptr) {
-                  json_ipv6["Address"] = *ipv6_config.address;
-                  json_ipv6["AddressOrigin"] = ipv6_config.origin;
-                  json_ipv6["PrefixLength"] = *ipv6_config.prefix_length;
-                  // TODO: Support Oem property
-                  //       Support AddressState property (RFC 4682)
-
-                  ipv6_array.push_back(json_ipv6);
-                }
-              }
-              json_response["IPv6Addresses"] = std::move(ipv6_array);
-            }
-
-            res.json_value = std::move(json_response);
+            res.json_value = parseInterfaceData(iface_id, eth_data, ipv4_data,
+                ipv6_data);
           } else {
             // ... otherwise return error
             // TODO(Pawel)consider distinguish between non existing object, and
