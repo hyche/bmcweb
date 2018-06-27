@@ -326,6 +326,7 @@ void objectInterfacesToJson(
  */
 void getChassisData(const std::shared_ptr<AsyncResp>& asyncResp) {
   CROW_LOG_DEBUG << "getChassisData";
+#ifndef OCP_CUSTOM_FLAG //TODO need to remove Entity-Manager object
   auto getChassisCb = [&, asyncResp](boost::container::flat_set<std::string>&
                                          sensorNames) {
     CROW_LOG_DEBUG << "getChassisCb Done";
@@ -419,6 +420,7 @@ void getChassisData(const std::shared_ptr<AsyncResp>& asyncResp) {
 
   // Get chassis information related to sensors
   getChassis(asyncResp, std::move(getChassisCb));
+#endif  //OCP_CUSTOM_FLAG
 };
 
 }  // namespace redfish
