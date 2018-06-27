@@ -217,11 +217,8 @@ class OnDemandEthernetProvider {
           const std::string *origin =
               extractProperty<std::string>(properties, "Origin");
           if (origin != nullptr) {
-            // ... and get everything after last dot
-            int last = origin->rfind(".");
-            if (last != std::string::npos) {
-              ipv4_address.origin = origin->substr(last + 1);
-            }
+            ipv4_address.origin =
+              translateAddressOriginBetweenDBusAndRedfish(origin, true, true);
           }
 
           // Netmask is presented as PrefixLength
@@ -267,11 +264,10 @@ class OnDemandEthernetProvider {
           const std::string *origin =
               extractProperty<std::string>(properties, "Origin");
           if (origin != nullptr) {
-            int last = origin->rfind(".");
-            if (last != std::string::npos) {
-              ipv6_address.origin = origin->substr(last + 1);
-            }
+            ipv6_address.origin =
+              translateAddressOriginBetweenDBusAndRedfish(origin, false, true);
           }
+
           ipv6_address.prefix_length=
               extractProperty<uint8_t>(properties, "PrefixLength");
 
@@ -282,6 +278,54 @@ class OnDemandEthernetProvider {
   }
 
  public:
+  /**
+   * @brief Translates Address Origin value from D-Bus to Redfish format and
+   *        vice-versa
+   *
+   * @param[in] inputOrigin Input value that should be translated
+   * @param[in] isIPv4      True for IPv4 origins, False for IPv6
+   * @param[in] isFromDBus  True for DBus->Redfish conversion, false for reverse
+   *
+   * @return Empty string in case of failure, translated value otherwise
+   */
+  std::string translateAddressOriginBetweenDBusAndRedfish(
+      const std::string *inputOrigin, bool isIPv4, bool isFromDBus) {
+    // Invalid pointer
+    if (inputOrigin == nullptr) {
+      return "";
+    }
+
+    static const constexpr unsigned int firstIPv4OnlyIdx = 1;
+    static const constexpr unsigned int firstIPv6OnlyIdx = 3;
+
+    std::array<std::pair<const char *, const char *>, 6> translationTable{
+        {{"xyz.openbmc_project.Network.IP.AddressOrigin.Static", "Static"},
+         {"xyz.openbmc_project.Network.IP.AddressOrigin.DHCP", "DHCP"},
+         {"xyz.openbmc_project.Network.IP.AddressOrigin.LinkLocal",
+          "IPv4LinkLocal"},
+         {"xyz.openbmc_project.Network.IP.AddressOrigin.DHCP", "DHCPv6"},
+         {"xyz.openbmc_project.Network.IP.AddressOrigin.LinkLocal",
+          "LinkLocal"},
+         {"xyz.openbmc_project.Network.IP.AddressOrigin.SLAAC", "SLAAC"}}};
+
+    for (unsigned int i = 0; i < translationTable.size(); i++) {
+      // Skip unrelated
+      if (isIPv4 && i >= firstIPv6OnlyIdx) break;
+      if (!isIPv4 && i >= firstIPv4OnlyIdx && i < firstIPv6OnlyIdx) continue;
+
+      // When translating D-Bus to Redfish compare input to first element
+      if (isFromDBus && translationTable[i].first == *inputOrigin)
+        return translationTable[i].second;
+
+      // When translating Redfish to D-Bus compare input to second element
+      if (!isFromDBus && translationTable[i].second == *inputOrigin)
+        return translationTable[i].first;
+    }
+
+    // If we are still here, that means that value has not been found
+    return "";
+  }
+
   /**
    * Function that retrieves all properties for given Ethernet Interface Object
    * from EntityManager Network Manager
