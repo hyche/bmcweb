@@ -332,6 +332,12 @@ class Manager : public Node {
                                                                  // subroutes
                                                                  // will work
                                                                  // correctly
+    Node::json["Links"]["ManagerForServers"] = {
+                            {{"@odata.id", "/redfish/v1/Systems/1"}}};
+    Node::json["Links"]["ManagerForChassis"] = {
+                            {{"@odata.id", "/redfish/v1/Chassis/1"}}};
+    Node::json["Links"]["ManagerInChassis"] = {
+                            {"@odata.id", "/redfish/v1/Chassis/1"}};
 
     entityPrivileges = {{crow::HTTPMethod::GET, {{"Login"}}},
                         {crow::HTTPMethod::HEAD, {{"Login"}}},
