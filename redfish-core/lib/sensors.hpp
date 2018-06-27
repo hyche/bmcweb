@@ -39,19 +39,19 @@ using ManagedObjectsVectorType = std::vector<std::pair<
         boost::container::flat_map<dbus::string, dbus::dbus_variant>>>>;
 
 /**
- * AsyncResp
+ * SensorAsyncResp
  * Gathers data needed for response processing after async calls are done
  */
-class AsyncResp {
+class SensorAsyncResp {
  public:
-  AsyncResp(crow::response& response, const std::string& chassisId,
+  SensorAsyncResp(crow::response& response, const std::string& chassisId,
             const std::initializer_list<const char*> types)
       : chassisId(chassisId), res(response), types(types) {
     res.json_value["@odata.id"] =
         "/redfish/v1/Chassis/" + chassisId + "/Thermal";
   }
 
-  ~AsyncResp() {
+  ~SensorAsyncResp() {
     if (res.code != static_cast<int>(HttpRespCode::OK)) {
       // Reset the json object to clear out any data that made it in before the
       // error happened
@@ -71,12 +71,12 @@ class AsyncResp {
 
 /**
  * @brief Creates connections necessary for chassis sensors
- * @param asyncResp Pointer to object holding response data
+ * @param sensorAsyncResp Pointer to object holding response data
  * @param sensorNames Sensors retrieved from chassis
  * @param callback Callback for processing gathered connections
  */
 template <typename Callback>
-void getConnections(const std::shared_ptr<AsyncResp>& asyncResp,
+void getConnections(const std::shared_ptr<SensorAsyncResp>& sensorAsyncResp,
                     const boost::container::flat_set<std::string>& sensorNames,
                     Callback&& callback) {
   CROW_LOG_DEBUG << "getConnections";
@@ -88,10 +88,10 @@ void getConnections(const std::shared_ptr<AsyncResp>& asyncResp,
       "xyz.openbmc_project.ObjectMapper", "GetSubTree");
 
   // Response handler for parsing objects subtree
-  auto resp_handler = [ callback{std::move(callback)}, asyncResp, sensorNames ](
+  auto resp_handler = [ callback{std::move(callback)}, sensorAsyncResp, sensorNames ](
       const boost::system::error_code ec, const GetSubTreeType& subtree) {
     if (ec != 0) {
-      asyncResp->setErrorStatus();
+      sensorAsyncResp->setErrorStatus();
       CROW_LOG_ERROR << "Dbus error " << ec;
       return;
     }
@@ -113,7 +113,7 @@ void getConnections(const std::shared_ptr<AsyncResp>& asyncResp,
              std::string,
              std::vector<std::pair<std::string, std::vector<std::string>>>>&
              object : subtree) {
-      for (const char* type : asyncResp->types) {
+      for (const char* type : sensorAsyncResp->types) {
         if (boost::starts_with(object.first, type)) {
           auto lastPos = object.first.rfind('/');
           if (lastPos != std::string::npos) {
@@ -142,11 +142,11 @@ void getConnections(const std::shared_ptr<AsyncResp>& asyncResp,
 
 /**
  * @brief Retrieves requested chassis sensors and redundancy data from DBus .
- * @param asyncResp   Pointer to object holding response data
+ * @param sensorAsyncResp   Pointer to object holding response data
  * @param callback  Callback for next step in gathered sensor processing
  */
 template <typename Callback>
-void getChassis(const std::shared_ptr<AsyncResp>& asyncResp,
+void getChassis(const std::shared_ptr<SensorAsyncResp>& sensorAsyncResp,
                 Callback&& callback) {
   CROW_LOG_DEBUG << "getChassis Done";
   const dbus::endpoint entityManager = {
@@ -155,17 +155,17 @@ void getChassis(const std::shared_ptr<AsyncResp>& asyncResp,
       "org.freedesktop.DBus.ObjectManager", "GetManagedObjects"};
 
   // Process response from EntityManager and extract chassis data
-  auto resp_handler = [ callback{std::move(callback)}, asyncResp ](
+  auto resp_handler = [ callback{std::move(callback)}, sensorAsyncResp ](
       const boost::system::error_code ec, ManagedObjectsVectorType& resp) {
     CROW_LOG_DEBUG << "getChassis resp_handler called back Done";
     if (ec) {
       CROW_LOG_ERROR << "getChassis resp_handler got error " << ec;
-      asyncResp->setErrorStatus();
+      sensorAsyncResp->setErrorStatus();
       return;
     }
     boost::container::flat_set<std::string> sensorNames;
     const std::string chassis_prefix =
-        "/xyz/openbmc_project/Inventory/Item/Chassis/" + asyncResp->chassisId +
+        "/xyz/openbmc_project/Inventory/Item/Chassis/" + sensorAsyncResp->chassisId +
         '/';
     CROW_LOG_DEBUG << "Chassis Prefix " << chassis_prefix;
     bool foundChassis = false;
@@ -186,8 +186,8 @@ void getChassis(const std::shared_ptr<AsyncResp>& asyncResp,
     CROW_LOG_DEBUG << "Found " << sensorNames.size() << " Sensor names";
 
     if (!foundChassis) {
-      CROW_LOG_INFO << "Unable to find chassis named " << asyncResp->chassisId;
-      asyncResp->res.code = static_cast<int>(HttpRespCode::NOT_FOUND);
+      CROW_LOG_INFO << "Unable to find chassis named " << sensorAsyncResp->chassisId;
+      sensorAsyncResp->res.code = static_cast<int>(HttpRespCode::NOT_FOUND);
     } else {
       callback(sensorNames);
     }
@@ -322,22 +322,22 @@ void objectInterfacesToJson(
 /**
  * @brief Entry point for retrieving sensors data related to requested
  *        chassis.
- * @param asyncResp   Pointer to object holding response data
+ * @param sensorAsyncResp   Pointer to object holding response data
  */
-void getChassisData(const std::shared_ptr<AsyncResp>& asyncResp) {
+void getChassisData(const std::shared_ptr<SensorAsyncResp>& sensorAsyncResp) {
   CROW_LOG_DEBUG << "getChassisData";
 #ifndef OCP_CUSTOM_FLAG //TODO need to remove Entity-Manager object
-  auto getChassisCb = [&, asyncResp](boost::container::flat_set<std::string>&
+  auto getChassisCb = [&, sensorAsyncResp](boost::container::flat_set<std::string>&
                                          sensorNames) {
     CROW_LOG_DEBUG << "getChassisCb Done";
     auto getConnectionCb =
-        [&, asyncResp, sensorNames](
+        [&, sensorAsyncResp, sensorNames](
             const boost::container::flat_set<std::string>& connections) {
           CROW_LOG_DEBUG << "getConnectionCb Done";
           // Get managed objects from all services exposing sensors
           for (const std::string& connection : connections) {
             // Response handler to process managed objects
-            auto getManagedObjectsCb = [&, asyncResp, sensorNames](
+            auto getManagedObjectsCb = [&, sensorAsyncResp, sensorNames](
                                            const boost::system::error_code ec,
                                            ManagedObjectsVectorType& resp) {
               // Go through all objects and update response with
@@ -390,7 +390,7 @@ void getChassisData(const std::shared_ptr<AsyncResp>& asyncResp) {
                 }
 
                 nlohmann::json& temp_array =
-                    asyncResp->res.json_value[fieldName];
+                    sensorAsyncResp->res.json_value[fieldName];
 
                 // Create the array if it doesn't yet exist
                 if (temp_array.is_array() == false) {
@@ -400,7 +400,7 @@ void getChassisData(const std::shared_ptr<AsyncResp>& asyncResp) {
                 temp_array.push_back(nlohmann::json::object());
                 nlohmann::json& sensor_json = temp_array.back();
                 sensor_json["@odata.id"] = "/redfish/v1/Chassis/" +
-                                           asyncResp->chassisId + "/Thermal#/" +
+                                           sensorAsyncResp->chassisId + "/Thermal#/" +
                                            sensorName;
                 objectInterfacesToJson(sensorName, sensorType,
                                        objDictEntry.second, sensor_json);
@@ -415,11 +415,11 @@ void getChassisData(const std::shared_ptr<AsyncResp>& asyncResp) {
           };
         };
     // Get connections and then pass it to get sensors
-    getConnections(asyncResp, sensorNames, std::move(getConnectionCb));
+    getConnections(sensorAsyncResp, sensorNames, std::move(getConnectionCb));
   };
 
   // Get chassis information related to sensors
-  getChassis(asyncResp, std::move(getChassisCb));
+  getChassis(sensorAsyncResp, std::move(getChassisCb));
 #endif  //OCP_CUSTOM_FLAG
 };
 

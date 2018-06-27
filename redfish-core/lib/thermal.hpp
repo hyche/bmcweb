@@ -48,12 +48,12 @@ class Thermal : public Node {
     const std::string& chassis_name = params[0];
 
     res.json_value = Node::json;
-    auto asyncResp = std::make_shared<AsyncResp>(
+    auto sensorAsyncResp = std::make_shared<SensorAsyncResp>(
         res, chassis_name,
         std::initializer_list<const char*>{
             "/xyz/openbmc_project/Sensors/fan",
             "/xyz/openbmc_project/Sensors/temperature"});
-    getChassisData(asyncResp);
+    getChassisData(sensorAsyncResp);
   }
 };
 
