@@ -310,6 +310,7 @@ class Manager : public Node {
     Node::json["Name"] = "OpenBmc Manager";
     Node::json["Description"] = "Baseboard Management Controller";
     Node::json["PowerState"] = "On";
+    Node::json["ManagerType"] = "BMC";
     Node::json["UUID"] =
         app.template get_middleware<crow::PersistentData::Middleware>()
             .system_uuid;
