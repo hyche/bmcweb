@@ -26,7 +26,11 @@
 
 namespace redfish {
 
+#ifdef OCP_CUSTOM_FLAG // Remove Entity-Manager object
+constexpr const char* DBUS_SENSOR_PREFIX = "/xyz/openbmc_project/sensors/";
+#else
 constexpr const char* DBUS_SENSOR_PREFIX = "/xyz/openbmc_project/Sensors/";
+#endif //OCP_CUSTOM_FLAG
 
 using GetSubTreeType = std::vector<
     std::pair<std::string,
@@ -76,11 +80,22 @@ class SensorAsyncResp {
  * @param callback Callback for processing gathered connections
  */
 template <typename Callback>
+#ifdef OCP_CUSTOM_FLAG // Because of unused Entity-Manager object therefore
+                       // parameter: sensorNames unnecessary.
+void getConnections(const std::shared_ptr<SensorAsyncResp>& sensorAsyncResp,
+                    Callback&& callback) {
+
+#else
 void getConnections(const std::shared_ptr<SensorAsyncResp>& sensorAsyncResp,
                     const boost::container::flat_set<std::string>& sensorNames,
                     Callback&& callback) {
+#endif //OCP_CUSTOM_FLAG
   CROW_LOG_DEBUG << "getConnections";
+#ifdef OCP_CUSTOM_FLAG // Remove Entity-Manager object
+  const std::string path = "/xyz/openbmc_project/sensors";
+#else
   const std::string path = "/xyz/openbmc_project/Sensors";
+#endif //OCP_CUSTOM_FLAG
   const std::array<std::string, 1> interfaces = {
       "xyz.openbmc_project.Sensor.Value"};
   const dbus::endpoint object_mapper(
@@ -88,7 +103,11 @@ void getConnections(const std::shared_ptr<SensorAsyncResp>& sensorAsyncResp,
       "xyz.openbmc_project.ObjectMapper", "GetSubTree");
 
   // Response handler for parsing objects subtree
+#ifdef OCP_CUSTOM_FLAG // Remove unused parameter: sensorNames.
+  auto resp_handler = [ callback{std::move(callback)}, sensorAsyncResp](
+#else
   auto resp_handler = [ callback{std::move(callback)}, sensorAsyncResp, sensorNames ](
+#endif //OCP_CUSTOM_FLAG
       const boost::system::error_code ec, const GetSubTreeType& subtree) {
     if (ec != 0) {
       sensorAsyncResp->setErrorStatus();
@@ -104,10 +123,12 @@ void getConnections(const std::shared_ptr<SensorAsyncResp>& sensorAsyncResp,
     // Intrinsic to avoid malloc.  Most systems will have < 8 sensor producers
     connections.reserve(8);
 
+#ifndef OCP_CUSTOM_FLAG // Remove unused parameter: sensorNames.
     CROW_LOG_DEBUG << "sensorNames list cout: " << sensorNames.size();
     for (const std::string& tsensor : sensorNames) {
       CROW_LOG_DEBUG << "Sensor to find: " << tsensor;
     }
+#endif
 
     for (const std::pair<
              std::string,
@@ -117,6 +138,14 @@ void getConnections(const std::shared_ptr<SensorAsyncResp>& sensorAsyncResp,
         if (boost::starts_with(object.first, type)) {
           auto lastPos = object.first.rfind('/');
           if (lastPos != std::string::npos) {
+#ifdef OCP_CUSTOM_FLAG // Remove unused parameter: sensorNames.
+            // Add connection list.
+            for (const std::pair<std::string, std::vector<std::string>>&
+                  objData : object.second) {
+              CROW_LOG_DEBUG << "objData.first: " << objData.first;
+              connections.insert(objData.first);
+            }
+#else
             std::string sensorName = object.first.substr(lastPos + 1);
 
             if (sensorNames.find(sensorName) != sensorNames.end()) {
@@ -126,6 +155,7 @@ void getConnections(const std::shared_ptr<SensorAsyncResp>& sensorAsyncResp,
                 connections.insert(objData.first);
               }
             }
+#endif //OCP_CUSTOM_FLAG
           }
           break;
         }
@@ -140,6 +170,8 @@ void getConnections(const std::shared_ptr<SensorAsyncResp>& sensorAsyncResp,
                                                    path, 2, interfaces);
 }
 
+#ifndef OCP_CUSTOM_FLAG // Comment out getChassis method
+                        // Unuse Entity-Manager object
 /**
  * @brief Retrieves requested chassis sensors and redundancy data from DBus .
  * @param sensorAsyncResp   Pointer to object holding response data
@@ -196,6 +228,7 @@ void getChassis(const std::shared_ptr<SensorAsyncResp>& sensorAsyncResp,
   // Make call to EntityManager to find all chassis objects
   crow::connections::system_bus->async_method_call(resp_handler, entityManager);
 }
+#endif //OCP_CUSTOM_FLAG
 
 /**
  * @brief Builds a json sensor representation of a sensor.
@@ -326,18 +359,26 @@ void objectInterfacesToJson(
  */
 void getChassisData(const std::shared_ptr<SensorAsyncResp>& sensorAsyncResp) {
   CROW_LOG_DEBUG << "getChassisData";
-#ifndef OCP_CUSTOM_FLAG //TODO need to remove Entity-Manager object
+#ifdef OCP_CUSTOM_FLAG // Remove unused parameter: sensorNames
+  auto getConnectionCb =
+    [&, sensorAsyncResp](
+#else
   auto getChassisCb = [&, sensorAsyncResp](boost::container::flat_set<std::string>&
                                          sensorNames) {
     CROW_LOG_DEBUG << "getChassisCb Done";
     auto getConnectionCb =
         [&, sensorAsyncResp, sensorNames](
+#endif //OCP_CUSTOM_FLAG
             const boost::container::flat_set<std::string>& connections) {
           CROW_LOG_DEBUG << "getConnectionCb Done";
           // Get managed objects from all services exposing sensors
           for (const std::string& connection : connections) {
             // Response handler to process managed objects
+#ifdef OCP_CUSTOM_FLAG // Remove unused parameter: sensorNames
+            auto getManagedObjectsCb = [&, sensorAsyncResp](
+#else
             auto getManagedObjectsCb = [&, sensorAsyncResp, sensorNames](
+#endif //OCP_CUSTOM_FLAG
                                            const boost::system::error_code ec,
                                            ManagedObjectsVectorType& resp) {
               // Go through all objects and update response with
@@ -367,10 +408,12 @@ void getChassisData(const std::shared_ptr<SensorAsyncResp>& sensorAsyncResp) {
                 const std::string& sensorName = split[5];
                 CROW_LOG_DEBUG << "sensorName " << sensorName << " sensorType "
                                << sensorType;
+#ifndef OCP_CUSTOM_FLAG // Remove unused parameter: sensorNames
                 if (sensorNames.find(sensorName) == sensorNames.end()) {
                   CROW_LOG_ERROR << sensorName << " not in sensor list ";
                   continue;
                 }
+#endif //OCP_CUSTOM_FLAG
 
                 const char* fieldName = nullptr;
                 if (sensorType == "temperature") {
@@ -407,7 +450,11 @@ void getChassisData(const std::shared_ptr<SensorAsyncResp>& sensorAsyncResp) {
               }
             };
 
+#ifdef OCP_CUSTOM_FLAG // Remove Entity-Manager object
+            dbus::endpoint ep(connection, "/xyz/openbmc_project/sensors",
+#else
             dbus::endpoint ep(connection, "/xyz/openbmc_project/Sensors",
+#endif //OCP_CUSTOM_FLAG
                               "org.freedesktop.DBus.ObjectManager",
                               "GetManagedObjects");
             crow::connections::system_bus->async_method_call(
@@ -415,9 +462,14 @@ void getChassisData(const std::shared_ptr<SensorAsyncResp>& sensorAsyncResp) {
           };
         };
     // Get connections and then pass it to get sensors
+#ifdef OCP_CUSTOM_FLAG // Remove unused sensorNames parameter.
+    getConnections(sensorAsyncResp, std::move(getConnectionCb));
+#else
     getConnections(sensorAsyncResp, sensorNames, std::move(getConnectionCb));
   };
+#endif //OCP_CUSTOM_FLAG
 
+#ifndef OCP_CUSTOM_FLAG // Unused Entity-Manager object.
   // Get chassis information related to sensors
   getChassis(sensorAsyncResp, std::move(getChassisCb));
 #endif  //OCP_CUSTOM_FLAG

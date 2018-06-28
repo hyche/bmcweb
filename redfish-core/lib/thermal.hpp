@@ -51,8 +51,14 @@ class Thermal : public Node {
     auto sensorAsyncResp = std::make_shared<SensorAsyncResp>(
         res, chassis_name,
         std::initializer_list<const char*>{
+#ifdef OCP_CUSTOM_FLAG // Remove Entity-Manager object
+            "/xyz/openbmc_project/sensors/fan_tach",
+            "/xyz/openbmc_project/sensors/temperature"});
+#else
             "/xyz/openbmc_project/Sensors/fan",
             "/xyz/openbmc_project/Sensors/temperature"});
+#endif //OCP_CUSTOM_FLAG
+    // TODO Need to get Chassis Redundancy information.
     getChassisData(sensorAsyncResp);
   }
 };
