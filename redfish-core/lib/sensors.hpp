@@ -304,6 +304,7 @@ void objectInterfacesToJson(
   properties.emplace_back("xyz.openbmc_project.Sensor.Threshold.Critical",
                           "CriticalLow", "LowerThresholdCritical");
 
+
   if (sensorType == "temperature") {
     properties.emplace_back("xyz.openbmc_project.Sensor.Value", "MinValue",
                             "MinReadingRangeTemp");
@@ -408,7 +409,23 @@ void getChassisData(const std::shared_ptr<SensorAsyncResp>& sensorAsyncResp) {
                 const std::string& sensorName = split[5];
                 CROW_LOG_DEBUG << "sensorName " << sensorName << " sensorType "
                                << sensorType;
-#ifndef OCP_CUSTOM_FLAG // Remove unused parameter: sensorNames
+#ifdef OCP_CUSTOM_FLAG
+                // Verify each object path
+                bool isMatchSensorType = false;
+                for (const char* type : sensorAsyncResp->types) {
+                  // only accept the object path consists requested type.
+                  if (strstr(type, sensorType.c_str())) {
+                    isMatchSensorType = true;
+                    break;
+                  } else {
+                    isMatchSensorType = false;
+                  }
+                }
+                if (!isMatchSensorType) {
+                  CROW_LOG_DEBUG << sensorType << " is not requested";
+                  continue;
+                }
+#else
                 if (sensorNames.find(sensorName) == sensorNames.end()) {
                   CROW_LOG_ERROR << sensorName << " not in sensor list ";
                   continue;
