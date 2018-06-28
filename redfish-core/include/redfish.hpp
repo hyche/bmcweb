@@ -25,6 +25,7 @@
 #include "../lib/thermal.hpp"
 #ifdef OCP_CUSTOM_FLAG // TODO Add OCP custom flag for include target header
 #include "../lib/ocp-chassis.hpp"
+#include "../lib/power.hpp"
 #else
 #include "../lib/chassis.hpp"
 #endif
@@ -56,6 +57,9 @@ class RedfishService {
     nodes.emplace_back(std::make_unique<Thermal>(app));
     nodes.emplace_back(std::make_unique<ManagerCollection>(app));
     nodes.emplace_back(std::make_unique<ChassisCollection>(app));
+#ifdef OCP_CUSTOM_FLAG // Add power node
+    nodes.emplace_back(std::make_unique<Power>(app));
+#endif //OCP_CUSTOM_FLAG
 #ifndef OCP_CUSTOM_FLAG // TODO Remove Chassis node
                         // which unused in case definition of OCP custom flag
     nodes.emplace_back(std::make_unique<Chassis>(app));

@@ -286,6 +286,8 @@ void objectInterfacesToJson(
     forceToInt = true;
   } else if (sensorType == "voltage") {
     unit = "ReadingVolts";
+  } else if (sensorType == "power") {
+    unit = "LastPowerOutputWatts";
   } else {
     CROW_LOG_ERROR << "Redfish cannot map object type for " << sensorName;
     return;
@@ -304,6 +306,7 @@ void objectInterfacesToJson(
   properties.emplace_back("xyz.openbmc_project.Sensor.Threshold.Critical",
                           "CriticalLow", "LowerThresholdCritical");
 
+  // TODO Need to get UpperThresholdFatal and LowerThresholdFatal
 
   if (sensorType == "temperature") {
     properties.emplace_back("xyz.openbmc_project.Sensor.Value", "MinValue",
