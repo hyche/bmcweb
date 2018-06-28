@@ -47,6 +47,10 @@ class Thermal : public Node {
     }
     const std::string& chassis_name = params[0];
 
+#ifdef OCP_CUSTOM_FLAG // Allocate @odata.id to appropriate schema
+    Node::json["@odata.id"] = "/redfish/v1/Chassis/" +
+                              chassis_name + "/Thermal";
+#endif //OCP_CUSTOM_FLAG
     res.json_value = Node::json;
     auto sensorAsyncResp = std::make_shared<SensorAsyncResp>(
         res, chassis_name,

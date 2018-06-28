@@ -51,8 +51,10 @@ class SensorAsyncResp {
   SensorAsyncResp(crow::response& response, const std::string& chassisId,
             const std::initializer_list<const char*> types)
       : chassisId(chassisId), res(response), types(types) {
+#ifndef OCP_CUSTOM_FLAG // Allocate @odata.id to appropriate schema
     res.json_value["@odata.id"] =
         "/redfish/v1/Chassis/" + chassisId + "/Thermal";
+#endif //OCP_CUSTOM_FLAG
   }
 
   ~SensorAsyncResp() {
