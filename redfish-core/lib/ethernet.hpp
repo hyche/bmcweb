@@ -521,6 +521,38 @@ class OnDemandEthernetProvider {
   }
 
   /**
+   * @brief Creates IPv4 with given data
+   *
+   * @param[in] ifaceId     Id of interface whose IP should be deleted
+   * @param[in] ipIdx       Index of IP in input array that should be deleted
+   * @param[in] ipHash      DBus Hash id of IP that should be deleted
+   * @param[io] asyncResp   Response object that will be returned to client
+   *
+   * @return None
+   */
+  void createIPv4(const std::string &ifaceId, unsigned int ipIdx,
+                  uint8_t subnetMask, const std::string &gateway,
+                  const std::string &address,
+                  const std::shared_ptr<AsyncResp> &asyncResp) {
+    auto createIpHandler = [
+      ipIdx{std::move(ipIdx)}, asyncResp{std::move(asyncResp)}
+    ](const boost::system::error_code ec) {
+      if (ec) {
+        messages::addMessageToJson(
+            asyncResp->res.json_value, messages::internalError(),
+            "/IPv4Addresses/" + std::to_string(ipIdx) + "/");
+      }
+    };
+
+    crow::connections::system_bus->async_method_call(
+        std::move(createIpHandler),{"xyz.openbmc_project.Network",
+        "/xyz/openbmc_project/network/" + ifaceId,
+        "xyz.openbmc_project.Network.IP.Create", "IP"},
+        "xyz.openbmc_project.Network.IP.Protocol.IPv4", address, subnetMask,
+        gateway);
+  }
+
+  /**
    * @brief Translates Address Origin value from D-Bus to Redfish format and
    *        vice-versa
    *
@@ -892,7 +924,52 @@ class EthernetInterface : public Node {
         continue;
       }
 
-      if (entryIdx <= ipv4_data.size()) {
+      if (entryIdx >= ipv4_data.size()) {
+        asyncResp->res.json_value["IPv4Addresses"][entryIdx] = input[entryIdx];
+
+        // Verify that all field were provided
+        if (addressFieldState == json_util::Result::NOT_EXIST) {
+          errorDetected = true;
+          messages::addMessageToJson(
+              asyncResp->res.json_value, messages::propertyMissing("Address"),
+              "/IPv4Addresses/" + std::to_string(entryIdx) + "/Address");
+        }
+
+        if (subnetMaskFieldState == json_util::Result::NOT_EXIST) {
+          errorDetected = true;
+          messages::addMessageToJson(
+              asyncResp->res.json_value,
+              messages::propertyMissing("SubnetMask"),
+              "/IPv4Addresses/" + std::to_string(entryIdx) + "/SubnetMask");
+        }
+
+        if (addressOriginFieldState == json_util::Result::NOT_EXIST) {
+          errorDetected = true;
+          messages::addMessageToJson(
+              asyncResp->res.json_value,
+              messages::propertyMissing("AddressOrigin"),
+              "/IPv4Addresses/" + std::to_string(entryIdx) + "/AddressOrigin");
+        }
+
+        if (gatewayFieldState == json_util::Result::NOT_EXIST) {
+          errorDetected = true;
+          messages::addMessageToJson(
+              asyncResp->res.json_value, messages::propertyMissing("Gateway"),
+              "/IPv4Addresses/" + std::to_string(entryIdx) + "/Gateway");
+        }
+
+        // If any error occured do not proceed with current entry, but do not
+        // end loop
+        if (errorDetected) {
+          errorDetected = false;
+          continue;
+        }
+
+        // Create IPv4 with provided data
+        ethernet_provider.createIPv4(
+            ifaceId, entryIdx, subnetMaskAsPrefixLength, *gatewayFieldValue,
+            *addressFieldValue, asyncResp);
+      } else {
         // Existing object that should be modified/deleted/remain unchanged
         if (input[entryIdx].is_null()) {
           ethernet_provider.deleteIPv4(ifaceId, ipv4_data[entryIdx].id,
