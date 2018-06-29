@@ -48,13 +48,16 @@ class Power : public Node {
     }
     const std::string& chassis_name = params[0];
 
+    // Add specific Chassis sub-node name: Power
+    const std::string& subNodeName = "Power";
     Node::json["@odata.id"] = "/redfish/v1/Chassis/" + chassis_name + "/Power";
     res.json_value = Node::json;
     auto sensorAsyncResp = std::make_shared<SensorAsyncResp>(
         res, chassis_name,
         std::initializer_list<const char*>{
             "/xyz/openbmc_project/sensors/voltage",
-            "/xyz/openbmc_project/sensors/power"});
+            "/xyz/openbmc_project/sensors/power"},
+        subNodeName);
     // TODO Need to retrieve Power Control information.
     getChassisData(sensorAsyncResp);
   }

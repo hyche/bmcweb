@@ -47,6 +47,9 @@ class Thermal : public Node {
     }
     const std::string& chassis_name = params[0];
 
+#ifdef OCP_CUSTOM_FLAG // Add specific chassis sub-node name: Thermal
+    const std::string& subNodeName = "Thermal";
+#endif //OCP_CUSTOM_FLAG
 #ifdef OCP_CUSTOM_FLAG // Allocate @odata.id to appropriate schema
     Node::json["@odata.id"] = "/redfish/v1/Chassis/" +
                               chassis_name + "/Thermal";
@@ -57,7 +60,8 @@ class Thermal : public Node {
         std::initializer_list<const char*>{
 #ifdef OCP_CUSTOM_FLAG // Remove Entity-Manager object
             "/xyz/openbmc_project/sensors/fan_tach",
-            "/xyz/openbmc_project/sensors/temperature"});
+            "/xyz/openbmc_project/sensors/temperature"},
+        subNodeName);
 #else
             "/xyz/openbmc_project/Sensors/fan",
             "/xyz/openbmc_project/Sensors/temperature"});

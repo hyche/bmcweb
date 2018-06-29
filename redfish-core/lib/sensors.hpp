@@ -49,8 +49,15 @@ using ManagedObjectsVectorType = std::vector<std::pair<
 class SensorAsyncResp {
  public:
   SensorAsyncResp(crow::response& response, const std::string& chassisId,
+#ifdef OCP_CUSTOM_FLAG // Add specific sub-Node
+            const std::initializer_list<const char*> types,
+            const std::string& subNode)
+      : chassisId(chassisId), res(response), types(types),
+        chassisSubNode(subNode) {
+#else
             const std::initializer_list<const char*> types)
       : chassisId(chassisId), res(response), types(types) {
+#endif //OCP_CUSTOM_FLAG
 #ifndef OCP_CUSTOM_FLAG // Allocate @odata.id to appropriate schema
     res.json_value["@odata.id"] =
         "/redfish/v1/Chassis/" + chassisId + "/Thermal";
@@ -73,6 +80,9 @@ class SensorAsyncResp {
   std::string chassisId{};
   crow::response& res;
   const std::vector<const char*> types;
+#ifdef OCP_CUSTOM_FLAG
+  std::string chassisSubNode{};
+#endif //OCP_CUSTOM_FLAG
 };
 
 /**
@@ -464,9 +474,16 @@ void getChassisData(const std::shared_ptr<SensorAsyncResp>& sensorAsyncResp) {
 
                 temp_array.push_back(nlohmann::json::object());
                 nlohmann::json& sensor_json = temp_array.back();
+#ifdef OCP_CUSTOM_FLAG // @odata.id belongs to specific Chassis sub-node name.
+                sensor_json["@odata.id"] = "/redfish/v1/Chassis/" +
+                                      sensorAsyncResp->chassisId + "/" +
+                                      sensorAsyncResp->chassisSubNode + "#/" +
+                                      sensorName;
+#else
                 sensor_json["@odata.id"] = "/redfish/v1/Chassis/" +
                                            sensorAsyncResp->chassisId + "/Thermal#/" +
                                            sensorName;
+#endif //OCP_CUSTOM_FLAG
                 objectInterfacesToJson(sensorName, sensorType,
                                        objDictEntry.second, sensor_json);
               }
