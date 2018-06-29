@@ -935,17 +935,13 @@ class EthernetInterface : public Node {
     if (!ipv4_data.empty()) {
       nlohmann::json ipv4_array = nlohmann::json::array();
       for (const IPv4AddressData &ipv4_config : ipv4_data) {
-        nlohmann::json json_ipv4;
         if (ipv4_config.address != nullptr) {
           ipv4_array.push_back({
               {"Address", *ipv4_config.address},
               {"AddressOrigin", ipv4_config.origin},
-              {"SubnetMask", ipv4_config.netmask}
+              {"SubnetMask", ipv4_config.netmask},
+              {"Gateway", *ipv4_config.gateway}
           });
-          if (ipv4_config.gateway != nullptr)
-            json_ipv4["Gateway"] = *ipv4_config.gateway;
-
-          ipv4_array.push_back(std::move(json_ipv4));
         }
       }
       json_response["IPv4Addresses"] = std::move(ipv4_array);
@@ -955,7 +951,6 @@ class EthernetInterface : public Node {
     if (!ipv6_data.empty()) {
       nlohmann::json ipv6_array = nlohmann::json::array();
       for (const IPv6AddressData &ipv6_config : ipv6_data) {
-        nlohmann::json json_ipv6;
         if (ipv6_config.address != nullptr) {
           ipv6_array.push_back({
               {"Address", *ipv6_config.address},
@@ -964,8 +959,6 @@ class EthernetInterface : public Node {
           });
           // TODO: Support Oem property
           //       Support AddressState property (RFC 4682)
-
-          ipv6_array.push_back(std::move(json_ipv6));
         }
       }
       json_response["IPv6Addresses"] = std::move(ipv6_array);
