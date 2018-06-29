@@ -492,6 +492,35 @@ class OnDemandEthernetProvider {
   };
 
   /**
+   * @brief Deletes given IPv4
+   *
+   * @param[in] ifaceId     Id of interface whose IP should be deleted
+   * @param[in] ipIdx       Index of IP in input array that should be deleted
+   * @param[in] ipHash      DBus Hash id of IP that should be deleted
+   * @param[io] asyncResp   Response object that will be returned to client
+   *
+   * @return None
+   */
+  void deleteIPv4(const std::string &ifaceId, const std::string &ipHash,
+                  unsigned int ipIdx,
+                  const std::shared_ptr<AsyncResp> &asyncResp) {
+    crow::connections::system_bus->async_method_call(
+        [ ipIdx{std::move(ipIdx)}, asyncResp{std::move(asyncResp)} ](
+            const boost::system::error_code ec) {
+          if (ec) {
+            messages::addMessageToJson(
+                asyncResp->res.json_value, messages::internalError(),
+                "/IPv4Addresses/" + std::to_string(ipIdx) + "/");
+          } else {
+            asyncResp->res.json_value["IPv4Addresses"][ipIdx] = nullptr;
+          }
+        },
+        {"xyz.openbmc_project.Network",
+        "/xyz/openbmc_project/network/" + ifaceId + "/ipv4/" + ipHash,
+        "xyz.openbmc_project.Object.Delete", "Delete"});
+  }
+
+  /**
    * @brief Translates Address Origin value from D-Bus to Redfish format and
    *        vice-versa
    *
@@ -866,7 +895,8 @@ class EthernetInterface : public Node {
       if (entryIdx <= ipv4_data.size()) {
         // Existing object that should be modified/deleted/remain unchanged
         if (input[entryIdx].is_null()) {
-          // TODO: Object should be deleted
+          ethernet_provider.deleteIPv4(ifaceId, ipv4_data[entryIdx].id,
+                                       entryIdx, asyncResp);
         } else if (input[entryIdx].is_object()) {
           if (input[entryIdx].size() == 0) {
             // Object shall remain unchanged
