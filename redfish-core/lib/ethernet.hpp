@@ -1034,7 +1034,7 @@ class EthernetInterface : public Node {
     // preparation
     ethernet_provider.getEthernetIfaceData(
         iface_id,
-        [&, iface_id, patchReq{std::move(patchReq)}, params](
+        [&, iface_id, patchReq = std::move(patchReq), params](
             const bool &success, const EthernetInterfaceData &eth_data,
             const std::vector<IPv4AddressData> &ipv4_data,
             const std::vector<IPv6AddressData> &ipv6_data) {
