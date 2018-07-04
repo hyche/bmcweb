@@ -61,4 +61,57 @@ class SystemsCollection : public Node {
   }
 
 };
+
+/**
+* Systems derived class for delivering Computer Systems Schema.
+*/
+class Systems : public Node {
+ public:
+  template <typename CrowApp>
+  Systems(CrowApp &app)
+       : Node(app, "/redfish/v1/Systems/<str>/", std::string()) {
+     Node::json["@odata.type"] = "#ComputerSystem.v1_5_0.ComputerSystem";
+     Node::json["@odata.context"] =
+                  "/redfish/v1/$metadata#ComputerSystem.ComputerSystem";
+     Node::json["Name"] = "Computer System";
+     Node::json["LogServices"] =
+                     {{"@odata.id", "/redfish/v1/Systems/1/LogServices"}};
+     Node::json["Links"]["Chassis"] =
+                    {{{"@odata.id", "/redfish/v1/Chassis/1"}}};
+     Node::json["Links"]["ManagedBy"] =
+                    {{{"@odata.id", "/redfish/v1/Managers/bmc"}}};
+     Node::json["Id"] = 1; // TODO hardcoded number of base board to 1.
+
+     entityPrivileges = {{crow::HTTPMethod::GET, {{"Login"}}},
+                         {crow::HTTPMethod::HEAD, {{"Login"}}},
+                         {crow::HTTPMethod::PATCH, {{"ConfigureComponents"}}},
+                         {crow::HTTPMethod::PUT, {{"ConfigureComponents"}}},
+                         {crow::HTTPMethod::DELETE, {{"ConfigureComponents"}}},
+                         {crow::HTTPMethod::POST, {{"ConfigureComponents"}}}};
+   }
+
+ private:
+  /**
+   * Functions triggers appropriate requests on D-Bus
+   */
+  void doGet(crow::response &res, const crow::request &req,
+              const std::vector<std::string> &params) override {
+    // Check if there is required param, truly entering this shall be
+    // impossible
+    if (params.size() != 1) {
+      res.code = static_cast<int>(HttpRespCode::INTERNAL_ERROR);
+      res.end();
+      return;
+    }
+
+    // Get system id
+    const std::string &id = params[0];
+
+    res.json_value = Node::json;
+    res.json_value["@odata.id"] = "/redfish/v1/Systems/" + id;
+    res.end();
+  }
+
+};
+
 }  // namespace redfish

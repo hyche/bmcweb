@@ -66,6 +66,7 @@ class RedfishService {
     nodes.emplace_back(std::make_unique<Chassis>(app));
 #endif
     nodes.emplace_back(std::make_unique<SystemsCollection>(app));
+    nodes.emplace_back(std::make_unique<Systems>(app));
 
     for (auto& node : nodes) {
       node->getSubRoutes(nodes);
