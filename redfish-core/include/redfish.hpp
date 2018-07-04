@@ -29,6 +29,7 @@
 #else
 #include "../lib/chassis.hpp"
 #endif
+#include "../lib/systems.hpp"
 #include "webserver_common.hpp"
 
 namespace redfish {
@@ -64,6 +65,7 @@ class RedfishService {
                         // which unused in case definition of OCP custom flag
     nodes.emplace_back(std::make_unique<Chassis>(app));
 #endif
+    nodes.emplace_back(std::make_unique<SystemsCollection>(app));
 
     for (auto& node : nodes) {
       node->getSubRoutes(nodes);
