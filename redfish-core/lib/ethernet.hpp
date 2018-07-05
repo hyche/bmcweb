@@ -821,14 +821,11 @@ class EthernetInterface : public Node {
 
     json_util::Result addressFieldState;
     json_util::Result subnetMaskFieldState;
-    json_util::Result addressOriginFieldState;
     json_util::Result gatewayFieldState;
     const std::string *addressFieldValue;
     const std::string *subnetMaskFieldValue;
-    const std::string *addressOriginFieldValue = nullptr;
     const std::string *gatewayFieldValue;
     uint8_t subnetMaskAsPrefixLength;
-    std::string addressOriginInDBusFormat;
 
     bool errorDetected = false;
     for (unsigned int entryIdx = 0; entryIdx < input.size(); entryIdx++) {
@@ -855,11 +852,6 @@ class EthernetInterface : public Node {
           static_cast<uint8_t>(json_util::MessageSetting::TYPE_ERROR),
           asyncResp->res.json_value,
           "/IPv4Addresses/" + std::to_string(entryIdx) + "/SubnetMask");
-      addressOriginFieldState = json_util::getString(
-          "AddressOrigin", input[entryIdx], addressOriginFieldValue,
-          static_cast<uint8_t>(json_util::MessageSetting::TYPE_ERROR),
-          asyncResp->res.json_value,
-          "/IPv4Addresses/" + std::to_string(entryIdx) + "/AddressOrigin");
       gatewayFieldState = json_util::getString(
           "Gateway", input[entryIdx], gatewayFieldValue,
           static_cast<uint8_t>(json_util::MessageSetting::TYPE_ERROR),
@@ -868,7 +860,6 @@ class EthernetInterface : public Node {
 
       if (addressFieldState == json_util::Result::WRONG_TYPE ||
           subnetMaskFieldState == json_util::Result::WRONG_TYPE ||
-          addressOriginFieldState == json_util::Result::WRONG_TYPE ||
           gatewayFieldState == json_util::Result::WRONG_TYPE) {
         return;
       }
@@ -893,21 +884,6 @@ class EthernetInterface : public Node {
             "/IPv4Addresses/" + std::to_string(entryIdx) + "/SubnetMask");
       }
 
-      // Get Address origin in proper format
-      addressOriginInDBusFormat =
-          ethernet_provider.translateAddressOriginBetweenDBusAndRedfish(
-              addressOriginFieldValue, true, false);
-
-      if (addressOriginFieldState == json_util::Result::SUCCESS &&
-          addressOriginInDBusFormat.empty()) {
-        errorDetected = true;
-        messages::addMessageToJson(
-            asyncResp->res.json_value,
-            messages::propertyValueNotInList(*addressOriginFieldValue,
-                                             "AddressOrigin"),
-            "/IPv4Addresses/" + std::to_string(entryIdx) + "/AddressOrigin");
-      }
-
       if (gatewayFieldState == json_util::Result::SUCCESS &&
           !ethernet_provider.ipv4VerifyIpAndGetBitcount(*gatewayFieldValue)) {
         errorDetected = true;
@@ -924,94 +900,62 @@ class EthernetInterface : public Node {
         continue;
       }
 
-      if (entryIdx >= ipv4_data.size()) {
-        asyncResp->res.json_value["IPv4Addresses"][entryIdx] = input[entryIdx];
-
-        // Verify that all field were provided
-        if (addressFieldState == json_util::Result::NOT_EXIST) {
-          errorDetected = true;
-          messages::addMessageToJson(
-              asyncResp->res.json_value, messages::propertyMissing("Address"),
-              "/IPv4Addresses/" + std::to_string(entryIdx) + "/Address");
-        }
-
-        if (subnetMaskFieldState == json_util::Result::NOT_EXIST) {
-          errorDetected = true;
-          messages::addMessageToJson(
-              asyncResp->res.json_value,
-              messages::propertyMissing("SubnetMask"),
-              "/IPv4Addresses/" + std::to_string(entryIdx) + "/SubnetMask");
-        }
-
-        if (addressOriginFieldState == json_util::Result::NOT_EXIST) {
-          errorDetected = true;
-          messages::addMessageToJson(
-              asyncResp->res.json_value,
-              messages::propertyMissing("AddressOrigin"),
-              "/IPv4Addresses/" + std::to_string(entryIdx) + "/AddressOrigin");
-        }
-
-        if (gatewayFieldState == json_util::Result::NOT_EXIST) {
-          errorDetected = true;
-          messages::addMessageToJson(
-              asyncResp->res.json_value, messages::propertyMissing("Gateway"),
-              "/IPv4Addresses/" + std::to_string(entryIdx) + "/Gateway");
-        }
-
-        // If any error occured do not proceed with current entry, but do not
-        // end loop
-        if (errorDetected) {
-          errorDetected = false;
-          continue;
-        }
-
-        // Create IPv4 with provided data
-        ethernet_provider.createIPv4(
-            ifaceId, entryIdx, subnetMaskAsPrefixLength, *gatewayFieldValue,
-            *addressFieldValue, asyncResp);
-      } else {
-        // Existing object that should be modified/deleted/remain unchanged
-        if (input[entryIdx].is_null()) {
+      // Processed data is guranteed to be null/objects
+      if (input[entryIdx].is_null()) {
+        if (entryIdx < ipv4_data.size()) {
+          // null on existing data indicates delete.
           ethernet_provider.deleteIPv4(ifaceId, ipv4_data[entryIdx].id,
                                        entryIdx, asyncResp);
-        } else if (input[entryIdx].is_object()) {
-          if (input[entryIdx].size() == 0) {
-            // Object shall remain unchanged
-            continue;
-          }
-
-          // Apply changes
-          if (addressFieldState == json_util::Result::SUCCESS &&
-              ipv4_data[entryIdx].address != nullptr &&
-              *ipv4_data[entryIdx].address != *addressFieldValue) {
-            ethernet_provider.changeIPv4AddressProperty(
-                ifaceId, entryIdx, ipv4_data[entryIdx].id, "Address",
-                *addressFieldValue, asyncResp);
-          }
-
-          if (subnetMaskFieldState == json_util::Result::SUCCESS &&
-              ipv4_data[entryIdx].netmask != *subnetMaskFieldValue) {
-            ethernet_provider.changeIPv4SubnetMaskProperty(
-                ifaceId, entryIdx, ipv4_data[entryIdx].id,
-                *subnetMaskFieldValue, subnetMaskAsPrefixLength, asyncResp);
-          }
-
-          if (addressOriginFieldState == json_util::Result::SUCCESS &&
-              ipv4_data[entryIdx].origin != *addressFieldValue) {
-            ethernet_provider.changeIPv4Origin(
-                ifaceId, entryIdx, ipv4_data[entryIdx].id,
-                *addressOriginFieldValue, addressOriginInDBusFormat, asyncResp);
-          }
-
-          if (gatewayFieldState == json_util::Result::SUCCESS &&
-              ipv4_data[entryIdx].gateway != nullptr &&
-              *ipv4_data[entryIdx].gateway != *gatewayFieldValue) {
-            ethernet_provider.changeIPv4AddressProperty(
-                ifaceId, entryIdx, ipv4_data[entryIdx].id, "Gateway",
-                *gatewayFieldValue, asyncResp);
-          }
         }
+        continue;
       }
+
+      // Remained objects shall be created/changed/unchanged
+      if (input[entryIdx].size() == 0) {
+        // Empty data should remain unchanged
+        continue;
+      }
+
+      if (entryIdx < ipv4_data.size()) {
+          // Delete old data which need to be replaced.
+          ethernet_provider.deleteIPv4(ifaceId, ipv4_data[entryIdx].id,
+                                       entryIdx, asyncResp);
+      }
+
+      // Verify that all fields were provided
+      if (addressFieldState == json_util::Result::NOT_EXIST) {
+        errorDetected = true;
+        messages::addMessageToJson(
+            asyncResp->res.json_value, messages::propertyMissing("Address"),
+            "/IPv4Addresses/" + std::to_string(entryIdx) + "/Address");
+      }
+
+      if (subnetMaskFieldState == json_util::Result::NOT_EXIST) {
+        errorDetected = true;
+        messages::addMessageToJson(
+            asyncResp->res.json_value,
+            messages::propertyMissing("SubnetMask"),
+            "/IPv4Addresses/" + std::to_string(entryIdx) + "/SubnetMask");
+      }
+
+      if (gatewayFieldState == json_util::Result::NOT_EXIST) {
+        errorDetected = true;
+        messages::addMessageToJson(
+            asyncResp->res.json_value, messages::propertyMissing("Gateway"),
+            "/IPv4Addresses/" + std::to_string(entryIdx) + "/Gateway");
+      }
+
+      // If any error occured do not proceed with current entry, but do not
+      // end loop
+      if (errorDetected) {
+        errorDetected = false;
+        continue;
+      }
+
+      // Create IPv4 with provided data
+      ethernet_provider.createIPv4(
+          ifaceId, entryIdx, subnetMaskAsPrefixLength, *gatewayFieldValue,
+          *addressFieldValue, asyncResp);
     }
   }
 
