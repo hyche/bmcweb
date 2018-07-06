@@ -298,7 +298,7 @@ class OnDemandEthernetProvider {
     }
   }
 
-  static const constexpr int ipAddressSectionsCount = 4;
+  static const constexpr int ipV4AddressSectionsCount = 4;
 
  public:
   /**
@@ -317,7 +317,7 @@ class OnDemandEthernetProvider {
 
     boost::split(bytesInMask, ip, boost::is_any_of("."));
 
-    if (bytesInMask.size() != ipAddressSectionsCount) {
+    if (bytesInMask.size() != ipV4AddressSectionsCount) {
       return false;
     }
 
