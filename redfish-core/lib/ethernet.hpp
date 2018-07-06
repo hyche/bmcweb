@@ -531,16 +531,25 @@ class OnDemandEthernetProvider {
    * @return None
    */
   void createIPv4(const std::string &ifaceId, unsigned int ipIdx,
-                  uint8_t subnetMask, const std::string &gateway,
-                  const std::string &address,
+                  const std::string &subnetMask, uint8_t prefixLength,
+                  const std::string &gateway, const std::string &address,
                   const std::shared_ptr<AsyncResp> &asyncResp) {
     auto createIpHandler = [
-      ipIdx{std::move(ipIdx)}, asyncResp{std::move(asyncResp)}
+      ipIdx{std::move(ipIdx)}, asyncResp{std::move(asyncResp)},
+      address{std::move(address)}, gateway{std::move(gateway)},
+      subnetMask{std::move(subnetMask)}
     ](const boost::system::error_code ec) {
       if (ec) {
         messages::addMessageToJson(
             asyncResp->res.json_value, messages::internalError(),
             "/IPv4Addresses/" + std::to_string(ipIdx) + "/");
+      } else {
+        asyncResp->res.json_value["IPv4Addresses"][ipIdx] = {
+            {"Address", address},
+            {"AddressOrigin", "Static"},
+            {"SubnetMask", subnetMask},
+            {"GateWay", gateway}
+        };
       }
     };
 
@@ -548,7 +557,7 @@ class OnDemandEthernetProvider {
         std::move(createIpHandler),{"xyz.openbmc_project.Network",
         "/xyz/openbmc_project/network/" + ifaceId,
         "xyz.openbmc_project.Network.IP.Create", "IP"},
-        "xyz.openbmc_project.Network.IP.Protocol.IPv4", address, subnetMask,
+        "xyz.openbmc_project.Network.IP.Protocol.IPv4", address, prefixLength,
         gateway);
   }
 
@@ -954,8 +963,8 @@ class EthernetInterface : public Node {
 
       // Create IPv4 with provided data
       ethernet_provider.createIPv4(
-          ifaceId, entryIdx, subnetMaskAsPrefixLength, *gatewayFieldValue,
-          *addressFieldValue, asyncResp);
+          ifaceId, entryIdx, *subnetMaskFieldValue, subnetMaskAsPrefixLength,
+          *gatewayFieldValue, *addressFieldValue, asyncResp);
     }
   }
 
