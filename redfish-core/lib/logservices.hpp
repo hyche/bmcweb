@@ -23,13 +23,85 @@
 namespace redfish {
 
 /**
+ * LogServiceActionsClear class supports POST method for ClearLog action.
+ */
+class LogServiceActionsClear : public Node {
+ public:
+  LogServiceActionsClear(CrowApp& app)
+      : Node(app,
+            "/redfish/v1/Systems/1/LogServices/SEL/Actions/LogService.Reset") {
+
+    entityPrivileges = {{crow::HTTPMethod::GET, {{"Login"}}},
+                        {crow::HTTPMethod::HEAD, {{"Login"}}},
+                        {crow::HTTPMethod::PATCH, {{"ConfigureManager"}}},
+                        {crow::HTTPMethod::PUT, {{"ConfigureManager"}}},
+                        {crow::HTTPMethod::DELETE, {{"ConfigureManager"}}},
+                        {crow::HTTPMethod::POST, {{"ConfigureManager"}}}};
+  }
+
+ private:
+  /**
+   * Function handles GET method request.
+   * LogServiceActionsClear supports for POST method,
+   * it is not required to retrieve more information in GET.
+   */
+  void doGet(crow::response& res, const crow::request& req,
+             const std::vector<std::string>& params) override {
+    res.json_value = Node::json;
+    res.end();
+  }
+
+  /**
+   * Function handles POST method request.
+   * The Clear Log actions does not require any parameter.The action deletes
+   * all entries found in the Entries collection for this Log Service.
+   */
+  void doPost(crow::response& res, const crow::request& req,
+              const std::vector<std::string>& params) override {
+    CROW_LOG_DEBUG << "Do delete all entries.";
+
+    auto asyncResp = std::make_shared<AsyncResp>(res);
+    // Execute Action
+    doClearLog(asyncResp);
+  }
+
+  /**
+   * Function will delete all entries found in the Entries collection for
+   * this Log Service.
+   */
+  void doClearLog(const std::shared_ptr<AsyncResp>& asyncResp) {
+    const dbus::endpoint object_logging(
+        "xyz.openbmc_project.Logging", "/xyz/openbmc_project/logging",
+        "xyz.openbmc_project.Collection.DeleteAll", "DeleteAll");
+
+    // Process response from Logging service.
+    auto resp_handler = [asyncResp](const boost::system::error_code ec) {
+      CROW_LOG_DEBUG << "doClearLog resp_handler callback: Done";
+      if (ec) {
+        // TODO Handle for specific error code
+        CROW_LOG_ERROR << "doClearLog resp_handler got error " << ec;
+        asyncResp->res.code = static_cast<int>(HttpRespCode::INTERNAL_ERROR);
+        return;
+      }
+
+      asyncResp->res.code = static_cast<int>(HttpRespCode::NO_CONTENT);
+    };
+
+    // Make call to Logging service to request Clear Log
+    crow::connections::system_bus->async_method_call(resp_handler,
+                                                     object_logging);
+  }
+};
+
+/**
 * LogService derived class for delivering Log Service Schema.
 */
 class LogService : public Node {
 public:
  template <typename CrowApp>
  LogService(CrowApp &app)
-   : Node(app, "/redfish/v1/Systems/1/LogServices/<str>/", std::string()) {
+   : Node(app, "/redfish/v1/Systems/1/LogServices/<str>/", std::string()),
+     memberActionsClear(app) {
    Node::json["@odata.type"] = "#LogService.v1_1_0.LogService";
    Node::json["@odata.context"] =
                               "/redfish/v1/$metadata#LogService.LogService";
@@ -107,6 +179,9 @@ private:
    return redfishDateTime;
  }
 
+ // Action ClearLog object as a member of LogService resource.
+ // Handle clear log action from POST request
+ LogServiceActionsClear memberActionsClear;
 };
 
 /**
