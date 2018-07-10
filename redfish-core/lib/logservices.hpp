@@ -23,6 +23,185 @@
 namespace redfish {
 
 /**
+ * D-Bus types primitives for several generic DBus interfaces
+ * TODO consider move this to separate file into boost::dbus
+ */
+using PropertiesMapType =
+    boost::container::flat_map<std::string, dbus::dbus_variant>;
+
+using GetManagedObjectsType = boost::container::flat_map<
+    dbus::object_path,
+    boost::container::flat_map<std::string, PropertiesMapType>>;
+
+using GetAllPropertiesType = PropertiesMapType;
+
+/**
+ * OnDemandLogServiceProvider
+ * Log Service provider class that retrieves data directly from dbus,
+ * before setting it into JSON output. This does not cache any data.
+ *
+ * TODO
+ * This perhaps shall be different file, which has to be chosen on compile time
+ * depending on OEM needs
+ */
+class OnDemandLogServiceProvider {
+ private:
+  // Helper function that allows to extract GetAllPropertiesType from
+  // GetManagedObjectsType, based on object path, and interface name
+  const PropertiesMapType *extractInterfaceProperties(
+      const dbus::object_path &objpath, const std::string &interface,
+      const GetManagedObjectsType &dbus_data) {
+    const auto &dbus_obj = dbus_data.find(objpath);
+    if (dbus_obj != dbus_data.end()) {
+      const auto &iface = dbus_obj->second.find(interface);
+      if (iface != dbus_obj->second.end()) {
+        return &iface->second;
+      }
+    }
+    return nullptr;
+  }
+
+  // Helper Wrapper that does inline object_path conversion from string
+  // into dbus::object_path type
+  inline const PropertiesMapType *extractInterfaceProperties(
+      const std::string &objpath, const std::string &interface,
+      const GetManagedObjectsType &dbus_data) {
+    const auto &dbus_obj = dbus::object_path{objpath};
+    return extractInterfaceProperties(dbus_obj, interface, dbus_data);
+  }
+
+  // Helper function that allows to get pointer to the property from
+  // GetAllPropertiesType native, or extracted by GetAllPropertiesType
+  template <typename T>
+  inline const T *extractProperty(const PropertiesMapType &properties,
+                                  const std::string &name) {
+    const auto &property = properties.find(name);
+    if (property != properties.end()) {
+      return boost::get<T>(&property->second);
+    }
+    return nullptr;
+  }
+  // TODO Consider to move the above functions to D-Bus
+  // generic_interfaces.hpp
+
+ public:
+  /**
+   * Function that retrieves all Log Entries Interfaces available through
+   * Logging Service
+   * @param asyncResp Pointer to object holding the response data
+   * @param callback a function that shall be called to
+   * convert D-Bus output into JSON.
+   */
+  template <typename CallbackFunc>
+  void getLogEntriesIfaceList(
+                        const std::shared_ptr<AsyncResp>& asyncResp,
+                        CallbackFunc &&callback) {
+    const dbus::endpoint loggingService = {
+        "xyz.openbmc_project.Logging", "/xyz/openbmc_project/logging",
+        "org.freedesktop.DBus.ObjectManager", "GetManagedObjects"};
+
+    // Process response for Logging service and extract interface list
+    auto resp_handler = [ asyncResp, callback{std::move(callback)} ](
+        const boost::system::error_code ec, GetManagedObjectsType& resp) {
+      CROW_LOG_DEBUG << "getLogEntriesIfaceList resp_handler callback Done";
+      // Callback requries vector<string> to retrieve all available
+      // Logging entry interfaces
+      std::vector<std::string> iface_list;
+      iface_list.reserve(resp.size());
+
+      if (ec) {
+        // TODO Handle for specific error code
+        CROW_LOG_ERROR << "getLogEntriesIfaceList resp_handler got error"
+                       << ec;
+        asyncResp->res.code = static_cast<int>(HttpRespCode::INTERNAL_ERROR);
+        return;
+      }
+
+      // Iterate over all retrived ObjectPath
+      for (auto &objpath : resp) {
+        // And all interfaces available for certain ObjectPath.
+        for (auto &interface : objpath.second) {
+          // If interface is xyz.openbmc_project.Logging.Entry
+          if (interface.first == "xyz.openbmc_project.Logging.Entry") {
+            // Cut out everything until last "/", ...
+            const std::string &iface_id = objpath.first.value;
+            CROW_LOG_DEBUG << "Found iface: " << iface_id;
+            std::size_t last_pos = iface_id.rfind("/");
+            if (last_pos != std::string::npos) {
+              // and put it into output vector
+              iface_list.emplace_back(iface_id.substr(last_pos + 1));
+            }
+          }
+        }
+      }
+      // Finally make a callback with useful data
+      callback(iface_list);
+    };
+
+    // Make call to Logging Service to find all log entry objects
+    crow::connections::system_bus->async_method_call(resp_handler,
+                                                     loggingService);
+  }
+};
+
+/**
+ * LogEntryCollection derived class for delivering Log Entry Collection Schema
+ */
+class LogEntryCollection : public Node {
+ public:
+  template <typename CrowApp>
+  LogEntryCollection(CrowApp &app)
+    : Node(app, "/redfish/v1/Systems/1/LogServices/SEL/Entries/") {
+    Node::json["@odata.type"] = "#LogEntryCollection.LogEntryCollection";
+    Node::json["@odata.context"] =
+                "/redfish/v1/$metadata#LogEntryCollection.LogEntryCollection";
+    Node::json["@odata.id"] = "/redfish/v1/Systems/1/LogServices/SEL/Entries";
+    Node::json["Description"] = "Collection of Logs for this System";
+    Node::json["Name"] = "Log Service Collection";
+
+    entityPrivileges = {{crow::HTTPMethod::GET, {{"Login"}}},
+                       {crow::HTTPMethod::HEAD, {{"Login"}}},
+                       {crow::HTTPMethod::PATCH, {{"ConfigureComponents"}}},
+                       {crow::HTTPMethod::PUT, {{"ConfigureComponents"}}},
+                       {crow::HTTPMethod::DELETE, {{"ConfigureComponents"}}},
+                       {crow::HTTPMethod::POST, {{"ConfigureComponents"}}}};
+  }
+
+ private:
+  /**
+   * Functions triggers appropriate requests on D-Bus
+   */
+  void doGet(crow::response &res, const crow::request &req,
+             const std::vector<std::string> &params) override {
+    // Update JSON payload
+    res.json_value = Node::json;
+    // Create asyncResp pointer to object holding the response data
+    auto asyncResp = std::make_shared<AsyncResp>(res);
+    // Process callback to prepare JSON payload
+    auto callback = [ asyncResp ](
+                                  const std::vector<std::string> &iface_list) {
+      nlohmann::json iface_array = nlohmann::json::array();
+      for (const std::string &iface_item : iface_list) {
+        iface_array.push_back(
+            {{"@odata.id", "/redfish/v1/Systems/1/LogServices/SEL/Entries/" +
+              iface_item}});
+      }
+      asyncResp->res.json_value["Members"] = iface_array;
+      asyncResp->res.json_value["Member@odata.count"] = iface_array.size();
+    };
+
+    // Get log entry interface list, and call the resp_handler callback
+    // for JSON payload
+    logservice_provider.getLogEntriesIfaceList(asyncResp, callback);
+  }
+
+  // Log Service Provider object.
+  // TODO Consider to move it to singleton.
+  OnDemandLogServiceProvider logservice_provider;
+};
+
+
+/**
  * LogServiceActionsClear class supports POST method for ClearLog action.
  */
 class LogServiceActionsClear : public Node {
