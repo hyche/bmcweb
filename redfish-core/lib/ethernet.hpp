@@ -981,6 +981,9 @@ class EthernetInterface : public Node {
         "/redfish/v1/Managers/openbmc/EthernetInterfaces/" + iface_id;
 
     // ... then the one from DBus, regarding eth iface...
+    if (eth_data.auto_neg != nullptr)
+      json_response["AutoNeg"] = *eth_data.auto_neg;
+
     if (eth_data.speed != nullptr) json_response["SpeedMbps"] = *eth_data.speed;
 
     if (eth_data.mac_address != nullptr)
