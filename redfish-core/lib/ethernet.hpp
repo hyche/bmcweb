@@ -717,16 +717,16 @@ class EthernetCollection : public Node {
  public:
   template <typename CrowApp>
   // TODO(Pawel) Remove line from below, where we assume that there is only one
-  // manager called openbmc This shall be generic, but requires to update
+  // manager called bmc This shall be generic, but requires to update
   // GetSubroutes method
   EthernetCollection(CrowApp &app)
-      : Node(app, "/redfish/v1/Managers/openbmc/EthernetInterfaces/") {
+      : Node(app, "/redfish/v1/Managers/bmc/EthernetInterfaces/") {
     Node::json["@odata.type"] =
         "#EthernetInterfaceCollection.EthernetInterfaceCollection";
     Node::json["@odata.context"] =
         "/redfish/v1/"
         "$metadata#EthernetInterfaceCollection.EthernetInterfaceCollection";
-    Node::json["@odata.id"] = "/redfish/v1/Managers/openbmc/EthernetInterfaces";
+    Node::json["@odata.id"] = "/redfish/v1/Managers/bmc/EthernetInterfaces";
     Node::json["Name"] = "Ethernet Network Interface Collection";
     Node::json["Description"] =
         "Collection of EthernetInterfaces for this Manager";
@@ -746,8 +746,8 @@ class EthernetCollection : public Node {
   void doGet(crow::response &res, const crow::request &req,
              const std::vector<std::string> &params) override {
     // TODO(Pawel) this shall be parametrized call to get EthernetInterfaces for
-    // any Manager, not only hardcoded 'openbmc'.
-    std::string manager_id = "openbmc";
+    // any Manager, not only hardcoded 'bmc'.
+    std::string manager_id = "bmc";
 
     // Get eth interface list, and call the below callback for JSON preparation
     ethernet_provider.getEthernetIfaceList(
@@ -788,10 +788,10 @@ class EthernetInterface : public Node {
    */
   template <typename CrowApp>
   // TODO(Pawel) Remove line from below, where we assume that there is only one
-  // manager called openbmc This shall be generic, but requires to update
+  // manager called bmc This shall be generic, but requires to update
   // GetSubroutes method
   EthernetInterface(CrowApp &app)
-      : Node(app, "/redfish/v1/Managers/openbmc/EthernetInterfaces/<str>/",
+      : Node(app, "/redfish/v1/Managers/bmc/EthernetInterfaces/<str>/",
              std::string()) {
     Node::json["@odata.type"] = "#EthernetInterface.v1_2_0.EthernetInterface";
     Node::json["@odata.context"] =
@@ -978,7 +978,7 @@ class EthernetInterface : public Node {
     // Fill out obvious data...
     json_response["Id"] = iface_id;
     json_response["@odata.id"] =
-        "/redfish/v1/Managers/openbmc/EthernetInterfaces/" + iface_id;
+        "/redfish/v1/Managers/bmc/EthernetInterfaces/" + iface_id;
 
     // ... then the one from DBus, regarding eth iface...
     if (eth_data.auto_neg != nullptr)
@@ -1040,7 +1040,7 @@ class EthernetInterface : public Node {
   void doGet(crow::response &res, const crow::request &req,
              const std::vector<std::string> &params) override {
     // TODO(Pawel) this shall be parametrized call (two params) to get
-    // EthernetInterfaces for any Manager, not only hardcoded 'openbmc'.
+    // EthernetInterfaces for any Manager, not only hardcoded 'bmc'.
     // Check if there is required param, truly entering this shall be
     // impossible.
     if (params.size() != 1) {
@@ -1074,7 +1074,7 @@ class EthernetInterface : public Node {
   void doPatch(crow::response& res, const crow::request& req,
                        const std::vector<std::string>& params) override {
     // TODO This shall be parametrized call (two params) to get
-    // EthernetInterfaces for any Manager, not only hardcoded 'openbmc'.
+    // EthernetInterfaces for any Manager, not only hardcoded 'bmc'.
     // Check if there is required param, truly entering this shall be
     // impossible.
     if (params.size() != 1) {

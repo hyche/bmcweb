@@ -167,7 +167,7 @@ class OnDemandSoftwareProvider {
 class ManagerActionsReset : public Node {
  public:
   ManagerActionsReset(CrowApp& app)
-      : Node(app, "/redfish/v1/Managers/openbmc/Actions/Manager.Reset/") {
+      : Node(app, "/redfish/v1/Managers/bmc/Actions/Manager.Reset/") {
 
     entityPrivileges = {{crow::HTTPMethod::GET, {{"Login"}}},
                         {crow::HTTPMethod::HEAD, {{"Login"}}},
@@ -301,12 +301,12 @@ class ManagerActionsReset : public Node {
 
 class Manager : public Node {
  public:
-  Manager(CrowApp& app) : Node(app, "/redfish/v1/Managers/openbmc/"),
+  Manager(CrowApp& app) : Node(app, "/redfish/v1/Managers/bmc/"),
                           memberActionsReset(app) {
-    Node::json["@odata.id"] = "/redfish/v1/Managers/openbmc";
+    Node::json["@odata.id"] = "/redfish/v1/Managers/bmc";
     Node::json["@odata.type"] = "#Manager.v1_3_0.Manager";
     Node::json["@odata.context"] = "/redfish/v1/$metadata#Manager.Manager";
-    Node::json["Id"] = "openbmc";
+    Node::json["Id"] = "bmc";
     Node::json["Name"] = "OpenBmc Manager";
     Node::json["Description"] = "Baseboard Management Controller";
     Node::json["PowerState"] = "On";
@@ -327,12 +327,12 @@ class Manager : public Node {
     Node::json["Model"] = "OpenBmc";               // TODO(ed), get model
     Node::json["EthernetInterfaces"] = nlohmann::json(
         {{"@odata.id",
-          "/redfish/v1/Managers/openbmc/EthernetInterfaces"}});  // TODO(Pawel),
-                                                                 // remove this
-                                                                 // when
-                                                                 // subroutes
-                                                                 // will work
-                                                                 // correctly
+          "/redfish/v1/Managers/bmc/EthernetInterfaces"}});  // TODO(Pawel),
+                                                             // remove this
+                                                             // when
+                                                             // subroutes
+                                                             // will work
+                                                             // correctly
     Node::json["Links"]["ManagerForServers"] = {
                             {{"@odata.id", "/redfish/v1/Systems/1"}}};
     Node::json["Links"]["ManagerForChassis"] = {
@@ -368,7 +368,7 @@ class Manager : public Node {
     reset_type.push_back("GracefulRestart");
     nlohmann::json manager_reset;
     manager_reset["target"] =
-                          "/redfish/v1/Managers/openbmc/Actions/Manager.Reset";
+                          "/redfish/v1/Managers/bmc/Actions/Manager.Reset";
     manager_reset["ResetType@Redfish.AllowableValues"] = reset_type;
     Node::json["Actions"]["#Manager.Reset"] = manager_reset;
 
@@ -411,7 +411,7 @@ class ManagerCollection : public Node {
         "/redfish/v1/$metadata#ManagerCollection.ManagerCollection";
     Node::json["Name"] = "Manager Collection";
     Node::json["Members@odata.count"] = 1;
-    Node::json["Members"] = {{{"@odata.id", "/redfish/v1/Managers/openbmc"}}};
+    Node::json["Members"] = {{{"@odata.id", "/redfish/v1/Managers/bmc"}}};
 
     entityPrivileges = {{crow::HTTPMethod::GET, {{"Login"}}},
                         {crow::HTTPMethod::HEAD, {{"Login"}}},
