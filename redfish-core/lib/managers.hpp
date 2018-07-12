@@ -325,6 +325,9 @@ class Manager : public Node {
     };  // TODO, read the OEM info from FRU or refactor to make it common,
         // this is hardcoded for now
     Node::json["Model"] = "OpenBmc";               // TODO(ed), get model
+    Node::json["NetworkProtocol"] = nlohmann::json(
+        {{"@odata.id",
+          "/redfish/v1/Managers/bmc/NetworkProtocol"}});
     Node::json["EthernetInterfaces"] = nlohmann::json(
         {{"@odata.id",
           "/redfish/v1/Managers/bmc/EthernetInterfaces"}});  // TODO(Pawel),
