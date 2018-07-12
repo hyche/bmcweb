@@ -142,6 +142,26 @@ class OnDemandLogServiceProvider {
     crow::connections::system_bus->async_method_call(resp_handler,
                                                      loggingService);
   }
+
+  /**
+   * Function returns Date Time information according to requested format
+   *
+   * @param[in] time time in second since the Epoch
+   * @param[in] format conversion specifier for strftime
+   *
+   * @return Date Time according to requested format
+   * TODO This method will be allocated in util.hpp
+   */
+  std::string getDateTime(const std::time_t &time, const char* format) {
+    std::array<char, 128> dateTime;
+    std::string redfishDateTime{};
+
+    if (std::strftime(dateTime.begin(), dateTime.size(), format,
+                      std::localtime(&time))) {
+      redfishDateTime = dateTime.data();
+    }
+    return redfishDateTime;
+  }
 };
 
 /**
@@ -322,9 +342,14 @@ private:
                                                     // should retrieve from
                                                     // Logging service
    // Get DateTime with format: yyyy-mm-ddThh:mm:ssZhh:mm
-   Node::json["DateTime"] = getDateTime("%FT%T%z");
+   const std::time_t time = std::time(nullptr);
+   std::string redfishDateTime =
+                             logservice_provider.getDateTime(time, "%FT%T%z");
+   redfishDateTime.insert(redfishDateTime.end() - 2, ':'); // hh:mm format
+   Node::json["DateTime"] = redfishDateTime;
    // Get DateTimeLocalOffset with format: Zhh:mm
-   Node::json["DateTimeLocalOffset"] = getDateTime("%z");
+   Node::json["DateTimeLocalOffset"] =
+   redfishDateTime.substr(redfishDateTime.length() - 6); // Time Zone position
    // TODO hardcoded ServiceEnabled property to true
    Node::json["ServiceEnabled"] = true;
    // TODO hardcoded Status information
@@ -341,26 +366,13 @@ private:
    res.end();
  }
 
- /**
-  * Function returns Date Time information according to requested format
-  */
- std::string getDateTime(const char* format) {
-   std::array<char, 128> dateTime;
-   std::string redfishDateTime{};
-   std::time_t time = std::time(nullptr);
-
-   if (std::strftime(dateTime.begin(), dateTime.size(), format,
-                     std::localtime(&time))) {
-     redfishDateTime = dateTime.data();
-     redfishDateTime.insert(redfishDateTime.end() - 2, ':');
-   }
-
-   return redfishDateTime;
- }
-
  // Action ClearLog object as a member of LogService resource.
  // Handle clear log action from POST request
  LogServiceActionsClear memberActionsClear;
+
+ // Log Service Provider object.
+ // TODO Consider to move it to singleton.
+ OnDemandLogServiceProvider logservice_provider;
 };
 
 /**
