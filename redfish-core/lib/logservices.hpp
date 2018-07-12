@@ -36,6 +36,18 @@ using GetManagedObjectsType = boost::container::flat_map<
 using GetAllPropertiesType = PropertiesMapType;
 
 /**
+ * Structure for keeping basic single Log Entry Interface information
+ * available from D-Bus
+ */
+struct LogEntryInterfaceData {
+  const uint32_t *id;
+  std::string timestamp;
+  std::string severity;
+  const std::string *message;
+  const bool *resolved;
+};
+
+/**
  * OnDemandLogServiceProvider
  * Log Service provider class that retrieves data directly from dbus,
  * before setting it into JSON output. This does not cache any data.
@@ -84,7 +96,83 @@ class OnDemandLogServiceProvider {
   // TODO Consider to move the above functions to D-Bus
   // generic_interfaces.hpp
 
+  // Helper function that extracts data from several D-Bus objects and several
+  // interfaces required by single interface instance
+  void extractLogEntryInterfaceData(const std::string &entry_id,
+                                    const GetManagedObjectsType &dbus_data,
+                                    LogEntryInterfaceData &entry_data) {
+    // Extract data that contains of specified event entry
+    const PropertiesMapType *entry_properties = extractInterfaceProperties(
+        "/xyz/openbmc_project/logging/entry/" + entry_id,
+        "xyz.openbmc_project.Logging.Entry", dbus_data);
+
+    if (entry_properties != nullptr) {
+      // Retrieve event entry Id
+      entry_data.id = extractProperty<uint32_t>(*entry_properties, "Id");
+      // Convert timestamp (milliseconds from Epoch) to datetime
+      const uint64_t *millisTimeStamp  =
+        extractProperty<uint64_t>(*entry_properties, "Timestamp");
+
+      // Retrieve Created property with format: yyyy-mm-ddThh:mm:ss
+      std::chrono::milliseconds chronoTimeStamp(*millisTimeStamp);
+      std::time_t timestamp =
+      std::chrono::duration_cast<std::chrono::seconds>(chronoTimeStamp).count();
+      entry_data.timestamp = getDateTime(timestamp, "%FT%R");
+
+      // Retrieve Severity property
+      const std::string *severity =
+                  extractProperty<std::string>(*entry_properties, "Severity");
+      entry_data.severity = translateSeverityBetweenDBusAndRedfish(severity,
+                                                                   true);
+      // Retrieve Message property
+      entry_data.message = extractProperty<std::string>(*entry_properties,
+                                                        "Message");
+      // Retrieve Resolved property
+      entry_data.resolved = extractProperty<bool>(*entry_properties,
+                                                  "Resolved");
+    }
+    // TODO [Expand] Extract data from other supported interfaces.
+  }
+
  public:
+  /**
+   * Function that retrieves all properties available for specified Log Entry
+   * interface object
+   * @param entry_id Specified Log Entry id object
+   * @param callback a function that shall be called to
+   * convert D-Bus output into JSON.
+   */
+  template <typename CallbackFunc>
+  void getLogEntryIfaceData(const std::string &entry_id,
+                            CallbackFunc &&callback) {
+    const dbus::endpoint loggingService = {
+        "xyz.openbmc_project.Logging", "/xyz/openbmc_project/logging",
+        "org.freedesktop.DBus.ObjectManager", "GetManagedObjects"};
+    // Process response for Logging service and extract interface data
+    auto resp_handler = [ &, entry_id, callback{std::move(callback)} ](
+        const boost::system::error_code ec, GetManagedObjectsType& resp) {
+
+      CROW_LOG_DEBUG << "getLogEntriesIfaceData resp_handler callback Done";
+      LogEntryInterfaceData entry_data{};
+
+      if (ec) {
+        // TODO Handle for specific error code
+        CROW_LOG_ERROR << "getLogEntriesIfaceData resp_handler got error "
+                       << ec;
+        callback(false, entry_data);
+        return;
+      }
+
+      extractLogEntryInterfaceData(entry_id, resp, entry_data);
+      // Finally make a callback with useful data
+      callback(true, entry_data);
+    };
+
+    // Make call to Logging Service to find all log entry objects
+    crow::connections::system_bus->async_method_call(resp_handler,
+                                                     loggingService);
+  }
+
   /**
    * Function that retrieves all Log Entries Interfaces available through
    * Logging Service
@@ -111,7 +199,7 @@ class OnDemandLogServiceProvider {
 
       if (ec) {
         // TODO Handle for specific error code
-        CROW_LOG_ERROR << "getLogEntriesIfaceList resp_handler got error"
+        CROW_LOG_ERROR << "getLogEntriesIfaceList resp_handler got error "
                        << ec;
         asyncResp->res.code = static_cast<int>(HttpRespCode::INTERNAL_ERROR);
         return;
@@ -144,7 +232,45 @@ class OnDemandLogServiceProvider {
   }
 
   /**
-   * Function returns Date Time information according to requested format
+   * Translate Severity value between D-Bus and Redfish format
+   *
+   * @param[in] inSeverity Input Severity value which be translated
+   * @param[in] isFromDBus True for D-Bus->Redfish conversion, False for reserve
+   *
+   * @return Empty string in case of failure, translated value otherwise
+   */
+  std::string translateSeverityBetweenDBusAndRedfish(
+      const std::string *inSeverity, bool isFromDBus) {
+    // Invalid pointer
+    if (inSeverity == nullptr) {
+      return "";
+    }
+    std::array<std::pair<const char *, const char *>, 8> translationTable{
+        {{"xyz.openbmc_project.Logging.Entry.Level.Alert", "Alert"},
+         {"xyz.openbmc_project.Logging.Entry.Level.Critical", "Critical"},
+         {"xyz.openbmc_project.Logging.Entry.Level.Debug", "Debug"},
+         {"xyz.openbmc_project.Logging.Entry.Level.Emergency", "Emergency"},
+         {"xyz.openbmc_project.Logging.Entry.Level.Error", "Error"},
+         {"xyz.openbmc_project.Logging.Entry.Level.Information", "Information"},
+         {"xyz.openbmc_project.Logging.Entry.Level.Notice", "Notice"},
+         {"xyz.openbmc_project.Logging.Entry.Level.Warning", "Warning"}}};
+
+    for (uint8_t i = 0; i < translationTable.size(); i++) {
+      // Translating D-Bus to Redfish
+      if (isFromDBus && translationTable[i].first == *inSeverity) {
+        return translationTable[i].second;
+      }
+      // Translating Redfish to D-Bus
+      if (!isFromDBus && translationTable[i].second == *inSeverity) {
+        return translationTable[i].first;
+      }
+    }
+    // In case the value has not been found
+    return "";
+  }
+
+  /**
+   * Method returns Date Time information according to requested format
    *
    * @param[in] time time in second since the Epoch
    * @param[in] format conversion specifier for strftime
@@ -162,6 +288,87 @@ class OnDemandLogServiceProvider {
     }
     return redfishDateTime;
   }
+};
+
+/**
+ * LogEntry derived class for delivering Log Entry Schema.
+ */
+class LogEntry : public Node {
+ public:
+  template <typename CrowApp>
+  LogEntry(CrowApp &app)
+    : Node(app, "/redfish/v1/Systems/1/LogServices/SEL/Entries/<str>/",
+           std::string()){
+    Node::json["@odata.type"] = "#LogService.v1_3_0.LogService";
+    Node::json["@odata.context"] =
+                              "/redfish/v1/$metadata#LogEntry.LogEntry";
+    Node::json["EntryType"] = "SEL"; // System Event Log
+
+    entityPrivileges = {{crow::HTTPMethod::GET, {{"Login"}}},
+                       {crow::HTTPMethod::HEAD, {{"Login"}}},
+                       {crow::HTTPMethod::PATCH, {{"ConfigureComponents"}}},
+                       {crow::HTTPMethod::PUT, {{"ConfigureComponents"}}},
+                       {crow::HTTPMethod::DELETE, {{"ConfigureComponents"}}},
+                       {crow::HTTPMethod::POST, {{"ConfigureComponents"}}}};
+  }
+
+ private:
+  /**
+   * Functions triggers appropriate requests on D-Bus
+   */
+  void doGet(crow::response &res, const crow::request &req,
+             const std::vector<std::string> &params) override {
+    // Check if there is required param, truly entering this shall be
+    // impossible
+    if (params.size() != 1) {
+      res.code = static_cast<int>(HttpRespCode::INTERNAL_ERROR);
+      res.end();
+      return;
+    }
+    // Get Log Entry Id
+    const std::string &entry_id = params[0];
+    Node::json["@odata.id"] =
+                            "/redfish/v1/Systems/1/LogServices/SEL/Entries/" +
+                            entry_id;
+
+    // Process callback to prepare JSON payload
+    auto callback = [&](const bool &success,
+                        const LogEntryInterfaceData &entry_data) {
+      if (success) {
+        if (entry_data.id != nullptr) {
+          Node::json["Id"] = *entry_data.id;
+          Node::json["Name"] = "Log Entry " + std::to_string(*entry_data.id);
+        }
+
+        Node::json["Severity"] = entry_data.severity;
+
+        if (entry_data.message != nullptr)
+          Node::json["Message"] = *entry_data.message;
+        // TODO Retrieve Message Arguments object
+
+        // Retrieve Created object with format: yyyy-mm-ddThh:mm
+        Node::json["Created"] = entry_data.timestamp;
+
+        //TODO Need get MessageId, SensorType, SensorNumber,
+        // EntryCode, OemRecordFormat and Links object.
+        // Now D-Bus does not support to retrieve these objects.
+
+        res.json_value = Node::json;
+      } else {
+        // No success, return code INTERNALL ERROR
+        res.code = static_cast<int>(HttpRespCode::INTERNAL_ERROR);
+      }
+      res.end();
+    };
+
+    // Get log entry interface list, and call the resp_handler callback
+    // for JSON payload
+    logservice_provider.getLogEntryIfaceData(entry_id, callback);
+  }
+
+  // Log Service Provider object.
+  // TODO Consider to move it to singleton.
+  OnDemandLogServiceProvider logservice_provider;
 };
 
 /**
