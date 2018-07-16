@@ -1,5 +1,6 @@
 /*
 // Copyright (c) 2018 Intel Corporation
+// Copyright (c) 2018 Ampere Computing LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,6 +17,7 @@
 #pragma once
 
 #include "node.hpp"
+#include <utils/ampere-utils.hpp>
 
 namespace redfish {
 
@@ -48,7 +50,9 @@ class NetworkProtocol : public Node {
   void doGet(crow::response& res, const crow::request& req,
              const std::vector<std::string>& params) override {
     refreshProtocolsState();
-    Node::json["HostName"] = getHostName();
+    std::string hostName = getHostName();
+    Node::json["HostName"] = hostName;
+    Node::json["FQDN"] = hostName + DOMAIN_NAME;
     res.json_value = Node::json;
     res.end();
   }

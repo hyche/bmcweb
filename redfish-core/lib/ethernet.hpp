@@ -19,6 +19,8 @@
 #include <error_messages.hpp>
 #include <node.hpp>
 #include <utils/json_utils.hpp>
+// TODO: remove this when find a better way to retrieve domain name.
+#include <utils/ampere-utils.hpp>
 #include <boost/container/flat_map.hpp>
 
 namespace redfish {
@@ -999,8 +1001,10 @@ class EthernetInterface : public Node {
     if (eth_data.mac_address != nullptr)
       json_response["MACAddress"] = *eth_data.mac_address;
 
-    if (eth_data.hostname != nullptr)
+    if (eth_data.hostname != nullptr) {
       json_response["HostName"] = *eth_data.hostname;
+      json_response["FQDN"] = *eth_data.hostname + DOMAIN_NAME;
+    }
 
     if (eth_data.vlan_id != nullptr) {
       nlohmann::json &vlanObj = json_response["VLAN"];
