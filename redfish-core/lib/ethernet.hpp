@@ -1,5 +1,6 @@
 /*
 // Copyright (c) 2018 Intel Corporation
+// Copyright (c) 2018 Ampere Computing LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -850,6 +851,25 @@ class EthernetInterface : public Node {
         continue;
       }
 
+      // Processed data is guaranteed to be null/objects
+      if (input[entryIdx].is_null()) {
+        if (entryIdx < ipv4_data.size()) {
+          // null on existing data indicates delete.
+          ethernet_provider.deleteIPv4(ifaceId, ipv4_data[entryIdx].id,
+                                       entryIdx, asyncResp);
+        }
+        continue;
+      }
+
+      if (entryIdx < ipv4_data.size()) {
+        // Load default fields from the existing IPv4 record.
+        addressFieldValue = ipv4_data[entryIdx].address;
+        subnetMaskFieldValue = &ipv4_data[entryIdx].netmask;
+        ethernet_provider.ipv4VerifyIpAndGetBitcount(*subnetMaskFieldValue,
+                                                     &subnetMaskAsPrefixLength);
+        gatewayFieldValue = ipv4_data[entryIdx].gateway;
+      }
+
       // Try to load fields
       addressFieldState = json_util::getString(
           "Address", input[entryIdx], addressFieldValue,
@@ -909,16 +929,6 @@ class EthernetInterface : public Node {
         continue;
       }
 
-      // Processed data is guranteed to be null/objects
-      if (input[entryIdx].is_null()) {
-        if (entryIdx < ipv4_data.size()) {
-          // null on existing data indicates delete.
-          ethernet_provider.deleteIPv4(ifaceId, ipv4_data[entryIdx].id,
-                                       entryIdx, asyncResp);
-        }
-        continue;
-      }
-
       // Remained objects shall be created/changed/unchanged
       if (input[entryIdx].size() == 0) {
         // Empty data should remain unchanged
@@ -929,36 +939,36 @@ class EthernetInterface : public Node {
           // Delete old data which need to be replaced.
           ethernet_provider.deleteIPv4(ifaceId, ipv4_data[entryIdx].id,
                                        entryIdx, asyncResp);
-      }
+      } else {
+        // Verify that all fields were provided for creating IP
+        if (addressFieldState == json_util::Result::NOT_EXIST) {
+          errorDetected = true;
+          messages::addMessageToJson(
+              asyncResp->res.json_value, messages::propertyMissing("Address"),
+              "/IPv4Addresses/" + std::to_string(entryIdx) + "/Address");
+        }
 
-      // Verify that all fields were provided
-      if (addressFieldState == json_util::Result::NOT_EXIST) {
-        errorDetected = true;
-        messages::addMessageToJson(
-            asyncResp->res.json_value, messages::propertyMissing("Address"),
-            "/IPv4Addresses/" + std::to_string(entryIdx) + "/Address");
-      }
+        if (subnetMaskFieldState == json_util::Result::NOT_EXIST) {
+          errorDetected = true;
+          messages::addMessageToJson(
+              asyncResp->res.json_value,
+              messages::propertyMissing("SubnetMask"),
+              "/IPv4Addresses/" + std::to_string(entryIdx) + "/SubnetMask");
+        }
 
-      if (subnetMaskFieldState == json_util::Result::NOT_EXIST) {
-        errorDetected = true;
-        messages::addMessageToJson(
-            asyncResp->res.json_value,
-            messages::propertyMissing("SubnetMask"),
-            "/IPv4Addresses/" + std::to_string(entryIdx) + "/SubnetMask");
-      }
+        if (gatewayFieldState == json_util::Result::NOT_EXIST) {
+          errorDetected = true;
+          messages::addMessageToJson(
+              asyncResp->res.json_value, messages::propertyMissing("Gateway"),
+              "/IPv4Addresses/" + std::to_string(entryIdx) + "/Gateway");
+        }
 
-      if (gatewayFieldState == json_util::Result::NOT_EXIST) {
-        errorDetected = true;
-        messages::addMessageToJson(
-            asyncResp->res.json_value, messages::propertyMissing("Gateway"),
-            "/IPv4Addresses/" + std::to_string(entryIdx) + "/Gateway");
-      }
-
-      // If any error occured do not proceed with current entry, but do not
-      // end loop
-      if (errorDetected) {
-        errorDetected = false;
-        continue;
+        // If any error occured do not proceed with current entry, but do not
+        // end loop
+        if (errorDetected) {
+          errorDetected = false;
+          continue;
+        }
       }
 
       // Create IPv4 with provided data
