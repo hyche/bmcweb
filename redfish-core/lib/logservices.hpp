@@ -594,7 +594,7 @@ class LogServiceCollection : public Node {
     Node::json["@odata.type"] = "#LogServiceCollection.LogServiceCollection";
     Node::json["@odata.id"] = "/redfish/v1/Systems/1/LogServices";
     Node::json["@odata.context"] =
-        "/redfish/v1/$metadata##LogServiceCollection.LogServiceCollection";
+        "/redfish/v1/$metadata#LogServiceCollection.LogServiceCollection";
     Node::json["Name"] = "Log Services Collection";
     Node::json["Members"] =
                     {{{"@odata.id", "/redfish/v1/Systems/1/LogServices/SEL"}}};
