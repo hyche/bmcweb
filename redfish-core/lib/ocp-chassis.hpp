@@ -224,7 +224,7 @@ class Chassis : public Node {
     // An array of references to the Managers responsible
     // for managing this chassis.
     json_response["Links"]["ManagedBy"] =
-                            {{{"@odata.id", "/redfish/v1/Managers/1"}}};
+                            {{{"@odata.id", "/redfish/v1/Managers/bmc"}}};
 
     asyncResp->res.json_value = json_response;
 
