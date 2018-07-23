@@ -110,6 +110,61 @@ class OnDemandComputerSystemProvider {
                                                      objComputerSystem,
                                                      ifaceName);
   }
+
+  /**
+   * @brief Retrieves Host state properties over D-Bus
+   *
+   * @param[in] asyncResp  Shared pointer for completing asynchronous calls.
+   * @return None.
+   */
+  void getHostState(const std::shared_ptr<AsyncResp>& asyncResp) {
+    CROW_LOG_DEBUG << "Get Host state.";
+    const dbus::endpoint objHostState = {
+        "xyz.openbmc_project.State.Host",
+        "/xyz/openbmc_project/state/host0",
+        "org.freedesktop.DBus.Properties", "GetAll"};
+    const std::string ifaceName = "xyz.openbmc_project.State.Host";
+    // Process response and extract data
+    auto resp_handler = [ asyncResp ](const boost::system::error_code ec,
+                                  const PropertiesType &properties) {
+      if (ec) {
+        CROW_LOG_ERROR << "D-Bus response error " << ec;
+        asyncResp->res.code = static_cast<int>(HttpRespCode::INTERNAL_ERROR);
+        return;
+      }
+      PropertiesType::const_iterator it =
+                                     properties.find("CurrentHostState");
+      if (it != properties.end()) {
+        const std::string *s = boost::get<std::string>(&it->second);
+        if (s != nullptr) {
+          const std::size_t pos = s->rfind('.');
+          if (pos != std::string::npos) {
+            // Retrieve Host State
+            const std::string hostState = s->substr(pos + 1);
+            // Determine PowerState and State property
+            if (hostState == "Running") {
+              asyncResp->res.json_value["PowerState"] = "On";
+              asyncResp->res.json_value["Status"]["State"] = "Enabled";
+            } else if (hostState == "Off") {
+              asyncResp->res.json_value["PowerState"] = "Off";
+              asyncResp->res.json_value["Status"]["State"] = "Disabled";
+            } else if (hostState == "Quiesced") {
+              asyncResp->res.json_value["PowerState"] = "On";
+              asyncResp->res.json_value["Status"]["State"] = "Quiesced";
+            } else {
+              CROW_LOG_ERROR << "Invalid host state: " << hostState;
+            }
+            // TODO D-Bus does not support to retrieve Health property yet.
+            asyncResp->res.json_value["Status"]["Health"] = "";
+          }
+        }
+      }
+    };
+    // Make call to Host State service to retrieve host state.
+    crow::connections::system_bus->async_method_call(resp_handler,
+                                                     objHostState,
+                                                     ifaceName);
+  }
 };
 
 /**
@@ -222,6 +277,9 @@ class Systems : public Node {
     for (const std::string ifaceName : arrayIfaceName) {
       provider.getComputerSystem(asyncResp, ifaceName);
     }
+
+    // Get Host state
+    provider.getHostState(asyncResp);
   }
 
   // Computer System Provider object.
