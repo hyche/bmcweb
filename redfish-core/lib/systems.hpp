@@ -22,6 +22,96 @@
 
 namespace redfish {
 
+using PropertiesType =
+    boost::container::flat_map<std::string, dbus::dbus_variant>;
+
+/**
+ * OnDemandComputerSystemProvider
+ * Computer System provider class that retrieves data directly from D-Bus,
+ * before setting it into JSON output. This does not cache any data.
+ *
+ * Class can be a good example on how to scale different data providing
+ * solutions to produce single schema output.
+ *
+ * TODO
+ * This perhaps shall be different file, which has to be chosen on compile time
+ * depending on OEM needs
+ */
+class OnDemandComputerSystemProvider {
+ public:
+  /**
+  * Function that retrieves all properties of Computer System.
+  * @param[in] asyncResp Shared pointer for completing asynchronous calls.
+  * @param[in] ifaceName Target Interface name to retrieve D-Bus data.
+  * @return None.
+  */
+  void getComputerSystem(const std::shared_ptr<AsyncResp>& asyncResp,
+                         const std::string& ifaceName) {
+    CROW_LOG_DEBUG << "Get Computer System information... ";
+    const dbus::endpoint objComputerSystem = {
+        "xyz.openbmc_project.Inventory.Manager",
+        "/xyz/openbmc_project/inventory/system",
+        "org.freedesktop.DBus.Properties", "GetAll"};
+    // Process response and extract data
+    auto resp_handler = [ asyncResp, ifaceName ](
+                          const boost::system::error_code ec,
+                          const PropertiesType &properties) {
+      if (ec) {
+        CROW_LOG_ERROR << "D-Bus response error: " << ec;
+        asyncResp->res.code = static_cast<int>(HttpRespCode::INTERNAL_ERROR);
+        return;
+      }
+
+      // Verify ifaceName
+      if (ifaceName == "xyz.openbmc_project.Inventory.Decorator.Asset") {
+        // Prepare all the schema required fields which retrieved from D-Bus.
+        for (const char *p :
+             std::array<const char *, 4>
+                 {"Manufacturer",
+                  "Model",
+                  "PartNumber",
+                  "SerialNumber"}) {
+          PropertiesType::const_iterator it = properties.find(p);
+          if (it != properties.end()) {
+            const std::string *s = boost::get<std::string>(&it->second);
+            if (s != nullptr) {
+              asyncResp->res.json_value[p] = *s;
+            }
+          }
+        }
+      } else if (ifaceName == "xyz.openbmc_project.Inventory.Item") {
+        // Look for PrettyName property
+        PropertiesType::const_iterator it = properties.find("PrettyName");
+        if (it != properties.end()) {
+          const std::string *s = boost::get<std::string>(&it->second);
+          if (s != nullptr) {
+            asyncResp->res.json_value["Name"] = *s;
+          }
+        }
+      } else if (ifaceName ==
+                 "xyz.openbmc_project.Inventory.Decorator.AssetTag") {
+        // Look for AssetTag property
+        PropertiesType::const_iterator it = properties.find("AssetTag");
+        if (it != properties.end()) {
+          const std::string *s = boost::get<std::string>(&it->second);
+          if (s != nullptr) {
+            CROW_LOG_DEBUG << "Found AssetTag: " << *s;
+            asyncResp->res.json_value["AssetTag"] = *s;
+          }
+        }
+      } else {
+        CROW_LOG_ERROR << "Bad Request Interface Name: " << ifaceName;
+        asyncResp->res.code = static_cast<int>(HttpRespCode::BAD_REQUEST);
+        return;
+      }
+    };
+    // Make call to Inventory Manager service to find computer system info.
+    crow::connections::system_bus->async_method_call(resp_handler,
+                                                     objComputerSystem,
+                                                     ifaceName);
+  }
+};
+
 /**
  * SystemsCollection derived class for delivering
  * Computer Systems Collection Schema
@@ -74,6 +164,18 @@ class Systems : public Node {
      Node::json["@odata.context"] =
                   "/redfish/v1/$metadata#ComputerSystem.ComputerSystem";
      Node::json["Name"] = "Computer System";
+
+     Node::json["SystemType"] = "Physical";
+     Node::json["Description"] = "Computer System";
+     Node::json["Boot"]["BootSourceOverrideEnabled"] =
+       "Disabled";  // TODO get real boot data
+     Node::json["Boot"]["BootSourceOverrideTarget"] =
+       "None";  // TODO get real boot data
+     Node::json["Boot"]["BootSourceOverrideMode"] =
+       "Legacy";  // TODO get real boot data
+     Node::json["Boot"]["BootSourceOverrideTarget@Redfish.AllowableValues"] = {
+       "None", "Pxe", "Hdd", "Usb"};  // TODO get real boot data
+
      Node::json["LogServices"] =
                      {{"@odata.id", "/redfish/v1/Systems/1/LogServices"}};
      Node::json["Links"]["Chassis"] =
@@ -109,8 +211,22 @@ class Systems : public Node {
 
     res.json_value = Node::json;
     res.json_value["@odata.id"] = "/redfish/v1/Systems/" + id;
-    res.end();
+
+    // Create aResp pointer to object holding the response data
+    auto asyncResp = std::make_shared<AsyncResp>(res);
+    // Get Computer System information via interface name
+    const std::array<const std::string, 3> arrayIfaceName
+    {"xyz.openbmc_project.Inventory.Decorator.Asset",
+     "xyz.openbmc_project.Inventory.Item",
+     "xyz.openbmc_project.Inventory.Decorator.AssetTag"};
+    for (const std::string ifaceName : arrayIfaceName) {
+      provider.getComputerSystem(asyncResp, ifaceName);
+    }
   }
+
+  // Computer System Provider object.
+  // TODO Consider to move it to singleton.
+  OnDemandComputerSystemProvider provider;
 
 };
 
