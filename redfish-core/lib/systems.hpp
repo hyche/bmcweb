@@ -22,6 +22,16 @@
 
 namespace redfish {
 
+/**
+ * D-Bus types primitives for several generic D-Bus interfaces
+ * TODO consider move this to separate file into boost::dbus
+ */
+using ManagedObjectsType = std::vector<
+    std::pair<dbus::object_path,
+              std::vector<std::pair<
+                  std::string,
+                  std::vector<std::pair<std::string, dbus::dbus_variant>>>>>>;
+
 using PropertiesType =
     boost::container::flat_map<std::string, dbus::dbus_variant>;
 
@@ -182,6 +192,116 @@ class OnDemandComputerSystemProvider {
     }
     return hostName;
   }
+
+  /**
+   * @brief Retrieves identify led group properties over D-Bus.
+   *
+   * @param[in] asyncResp  Shared pointer for completing asynchronous calls.
+   * @param[in] callback   Callback for process retrieved data.
+   *
+   * @return None.
+   */
+  template <typename CallbackFunc>
+  void getLedGroupIdentify(const std::shared_ptr<AsyncResp> &asyncResp,
+                           CallbackFunc &&callback) {
+    CROW_LOG_DEBUG << "Get LED groups.";
+    const dbus::endpoint objLedGroups = {
+      "xyz.openbmc_project.LED.GroupManager",
+      "/xyz/openbmc_project/led/groups",
+      "org.freedesktop.DBus.ObjectManager", "GetManagedObjects"};
+    // Process response from LED group manager service.
+    auto resp_handler = [ asyncResp, &callback ](
+                            const boost::system::error_code ec,
+                            const ManagedObjectsType &resp) {
+      if (ec) {
+        CROW_LOG_ERROR << "D-Bus response error " << ec;
+        asyncResp->res.code = static_cast<int>(HttpRespCode::INTERNAL_ERROR);
+        return;
+      }
+      CROW_LOG_DEBUG << "Got " << resp.size() << " led group objects.";
+      for (const auto &objPath : resp) {
+        const std::string &path = objPath.first.value;
+        // Look for enclosure_identify object path...
+        if (path.rfind("enclosure_identify") != std::string::npos) {
+          for (const auto &interface : objPath.second) {
+            // then find out the LED Group interface...
+            if (interface.first == "xyz.openbmc_project.Led.Group") {
+              for (const auto &property : interface.second) {
+                // retrieve Asserted property from it.
+                if (property.first == "Asserted") {
+                  const bool asserted = boost::get<bool>(property.second);
+                  CROW_LOG_DEBUG << "Found Asserted with value: " << asserted;
+                  callback(asserted, asyncResp);
+                }
+              }
+            }
+          }
+        }
+      }
+    };
+    // Make call to LED Group Manager service.
+    crow::connections::system_bus->async_method_call(resp_handler,
+                                                     objLedGroups);
+  }
+
+  /**
+   * @brief Retrieves identify led properties over D-Bus.
+   *
+   * @param[in] asyncResp  Shared pointer for completing asynchronous calls.
+   * @param[in] callback   Callback for process retrieved data.
+   *
+   * @return None.
+   */
+  template <typename CallbackFunc>
+  void getLedIdentify(const std::shared_ptr<AsyncResp> &asyncResp,
+                      CallbackFunc &&callback) {
+    CROW_LOG_DEBUG << "Get LED indentify property.";
+    const dbus::endpoint objLedIdentify = {
+      "xyz.openbmc_project.LED.Controller.identify",
+      "/xyz/openbmc_project/led/physical/identify",
+      "org.freedesktop.DBus.Properties", "GetAll"};
+    const std::string ifaceName = "xyz.openbmc_project.Led.Physical";
+    // Process response from LED Controller service.
+    auto resp_handler = [ asyncResp, &callback ](
+                            const boost::system::error_code ec,
+                            const PropertiesType &properties) {
+      if (ec) {
+        CROW_LOG_ERROR << "D-Bus response error " << ec;
+        asyncResp->res.code = static_cast<int>(HttpRespCode::INTERNAL_ERROR);
+        return;
+      }
+      CROW_LOG_DEBUG << "Got " << properties.size() << " led properties.";
+      std::string output{};   // Initial output Led State as Null.
+      PropertiesType::const_iterator it = properties.find("State");
+      if (it != properties.end()) {
+        const std::string *s =
+              boost::get<std::string>(&it->second);
+        if (nullptr != s) {
+          CROW_LOG_DEBUG << "Identify Led State: " << *s;
+          const auto pos = s->rfind('.');
+          if (pos != std::string::npos) {
+            const auto led = s->substr(pos + 1);
+            for (const std::pair<const char *, const char *> &p :
+                 std::array<std::pair<const char *, const char *>, 3>{
+                      {{"On", "Lit"},
+                      {"Blink", "Blinking"},
+                      {"Off", "Off"}}}) {
+              if (led == p.first) {
+                output = p.second;
+              }
+            }
+          }
+        }
+      }
+      // Update JSON payload with LED state information.
+      callback(output, asyncResp);
+    };
+    // Make call to LED Controller service.
+    crow::connections::system_bus->async_method_call(resp_handler,
+                                                     objLedIdentify,
+                                                     ifaceName);
+  }
+
 };
 
 /**
@@ -284,7 +404,7 @@ class Systems : public Node {
     res.json_value = Node::json;
     res.json_value["@odata.id"] = "/redfish/v1/Systems/" + id;
 
-    // Create aResp pointer to object holding the response data
+    // Create asyncResp pointer to object holding the response data
     auto asyncResp = std::make_shared<AsyncResp>(res);
     // Get Computer System information via interface name
     const std::array<const std::string, 3> arrayIfaceName
@@ -298,6 +418,25 @@ class Systems : public Node {
     // Get Host state
     provider.getHostState(asyncResp);
     asyncResp->res.json_value["HostName"] = provider.getHostName();
+
+    // Get IndicatorLED property
+    provider.getLedGroupIdentify(
+        asyncResp, [&](const bool &asserted,
+                       const std::shared_ptr<AsyncResp> &asyncResp) {
+          if (asserted) {
+            // If led group is asserted, then another call is needed to
+            // get led status.
+            provider.getLedIdentify(
+              asyncResp, [](const std::string &ledStatus,
+                            const std::shared_ptr<AsyncResp> &asyncResp) {
+                if (!ledStatus.empty()) {
+                  asyncResp->res.json_value["IndicatorLED"] = ledStatus;
+                }
+              });
+          } else {
+            asyncResp->res.json_value["IndicatorLED"] = "Off";
+          }
+        });
   }
 
   // Computer System Provider object.
