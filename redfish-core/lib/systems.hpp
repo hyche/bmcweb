@@ -165,6 +165,23 @@ class OnDemandComputerSystemProvider {
                                                      objHostState,
                                                      ifaceName);
   }
+
+  /**
+   * @brief Retrieves Host Name from system call.
+   *
+   * param[in] None.
+   * @return Host name in string.
+   * TODO This method should be located in utils.hpp.
+   */
+  std::string getHostName() const {
+    std::string hostName;
+
+    std::array<char, HOST_NAME_MAX> hostNameCStr;
+    if (gethostname(hostNameCStr.data(), hostNameCStr.size()) == 0) {
+      hostName = hostNameCStr.data();
+    }
+    return hostName;
+  }
 };
 
 /**
@@ -280,6 +297,7 @@ class Systems : public Node {
 
     // Get Host state
     provider.getHostState(asyncResp);
+    asyncResp->res.json_value["HostName"] = provider.getHostName();
   }
 
   // Computer System Provider object.
