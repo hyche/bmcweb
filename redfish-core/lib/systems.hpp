@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <utils/json_utils.hpp>
 #include "node.hpp"
 #include <boost/container/flat_map.hpp>
 
@@ -440,6 +441,102 @@ class Systems : public Node {
             asyncResp->res.json_value["IndicatorLED"] = "Off";
           }
         });
+  }
+
+  void doPatch(crow::response &res, const crow::request &req,
+               const std::vector<std::string> &params) override {
+    // Check if there is required param, truly entering this shall be
+    // impossible
+    if (params.size() != 1) {
+      res.code = static_cast<int>(HttpRespCode::INTERNAL_ERROR);
+      res.end();
+      return;
+    }
+    // Parse JSON request body
+    nlohmann::json patch;
+    if (!json_util::processJsonFromRequest(res, req, patch)) {
+      return;
+    }
+    // Find key with new led value
+    const std::string &name = params[0];
+    const std::string *reqLedState = nullptr;
+    json_util::Result r = json_util::getString(
+        "IndicatorLED", patch, reqLedState,
+        static_cast<int>(json_util::MessageSetting::TYPE_ERROR) |
+            static_cast<int>(json_util::MessageSetting::MISSING),
+        res.json_value, std::string("/" + name + "/IndicatorLED"));
+    if ((r != json_util::Result::SUCCESS) || (reqLedState == nullptr)) {
+      res.code = static_cast<int>(HttpRespCode::BAD_REQUEST);
+      res.end();
+      return;
+    }
+    // Verify key value
+    std::string dbusLedState;
+    for (const auto &p : boost::container::flat_map<const char *, const char *>{
+             {"On", "Lit"}, {"Blink", "Blinking"}, {"Off", "Off"}}) {
+      if (*reqLedState == p.second) {
+        dbusLedState = p.first;
+      }
+    }
+
+    // Update led status
+    auto asyncResp = std::make_shared<AsyncResp>(res);
+    res.json_value = Node::json;
+    res.json_value["@odata.id"] = "/redfish/v1/Systems/" + name;
+
+    provider.getHostState(asyncResp);
+    // TODO Need to refactor getComputerSystem method.
+    const std::array<const std::string, 3> arrayIfaceName
+    {"xyz.openbmc_project.Inventory.Decorator.Asset",
+     "xyz.openbmc_project.Inventory.Item",
+     "xyz.openbmc_project.Inventory.Decorator.AssetTag"};
+    for (const std::string ifaceName : arrayIfaceName) {
+      provider.getComputerSystem(asyncResp, ifaceName);
+    }
+
+    if (dbusLedState.empty()) {
+      CROW_LOG_ERROR << "Bad Request Led state: " << *reqLedState;
+      asyncResp->res.code = static_cast<int>(HttpRespCode::BAD_REQUEST);
+    } else {
+      // Update led group
+      CROW_LOG_DEBUG << "Update led group.";
+      crow::connections::system_bus->async_method_call(
+          [&, asyncResp{std::move(asyncResp)} ](
+              const boost::system::error_code ec) {
+            if (ec) {
+              CROW_LOG_DEBUG << "DBUS response error " << ec;
+              asyncResp->res.code =
+                                static_cast<int>(HttpRespCode::INTERNAL_ERROR);
+              return;
+            }
+            CROW_LOG_DEBUG << "Led group update done.";
+          },
+          {"xyz.openbmc_project.LED.GroupManager",
+          "/xyz/openbmc_project/led/groups/enclosure_identify",
+          "org.freedesktop.DBus.Properties", "Set"},
+          "xyz.openbmc_project.Led.Group", "Asserted",
+          dbus::dbus_variant((dbusLedState == "Off" ? false : true)));
+      // Update identify led status
+      CROW_LOG_DEBUG << "Update led SoftwareInventoryCollection.";
+      crow::connections::system_bus->async_method_call(
+          [&, asyncResp{std::move(asyncResp)} ](
+              const boost::system::error_code ec) {
+            if (ec) {
+              CROW_LOG_DEBUG << "DBUS response error " << ec;
+              asyncResp->res.code =
+                                static_cast<int>(HttpRespCode::INTERNAL_ERROR);
+              return;
+            }
+            CROW_LOG_DEBUG << "Led state update done.";
+            res.json_value["IndicatorLED"] = *reqLedState;
+          },
+          {"xyz.openbmc_project.LED.Controller.identify",
+          "/xyz/openbmc_project/led/physical/identify",
+          "org.freedesktop.DBus.Properties", "Set"},
+          "xyz.openbmc_project.Led.Physical", "State",
+          dbus::dbus_variant(
+              "xyz.openbmc_project.Led.Physical.Action." + dbusLedState));
+    }
   }
 
   // Computer System Provider object.
