@@ -375,6 +375,9 @@ class Systems : public Node {
      Node::json["Links"]["ManagedBy"] =
                     {{{"@odata.id", "/redfish/v1/Managers/bmc"}}};
      Node::json["Id"] = 1; // TODO hardcoded number of base board to 1.
+     Node::json["UUID"] = ""; // TODO get from fru.
+     Node::json["SKU"] = ""; // TODO Not supported in D-Bus yet.
+     Node::json["BiosVersion"] = ""; // TODO get real boot data.
 
      entityPrivileges = {{crow::HTTPMethod::GET, {{"Login"}}},
                          {crow::HTTPMethod::HEAD, {{"Login"}}},
