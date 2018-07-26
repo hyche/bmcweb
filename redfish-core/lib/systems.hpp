@@ -50,6 +50,19 @@ using PropertiesType =
  */
 class OnDemandComputerSystemProvider {
  public:
+
+  // List of allowed Reset Type for Computer System resource.
+  // TODO These should be retrieved from D-Bus.
+  const std::vector<std::string> allowedResetType{
+               "On",                // Turn the unit on.
+               "ForceOff",          // Turn the unit off immediately
+                                    // (non-graceful shutdown).
+               "GracefulRestart",   // Perform a graceful shutdown
+                                    // followed by a restart of the system.
+               "GracefulShutdown"}; // Perform a graceful shutdown
+                                    // and power off.
+                                    // TODO Need to support ForceRestart.
+
   /**
   * Function that retrieves all properties of Computer System.
   * @param[in] asyncResp Shared pointer for completing asynchronous calls.
@@ -346,13 +359,137 @@ class SystemsCollection : public Node {
 };
 
 /**
+ * SystemActionsReset class supports handle POST method for Reset action.
+ * The class retrieves and sends data directly to D-Bus.
+ */
+class SystemActionsReset : public Node {
+ public:
+  SystemActionsReset(CrowApp& app)
+      : Node(app, "/redfish/v1/Systems/1/Actions/ComputerSystem.Reset/") {
+
+    entityPrivileges = {{crow::HTTPMethod::GET, {{"Login"}}},
+                        {crow::HTTPMethod::HEAD, {{"Login"}}},
+                        {crow::HTTPMethod::PATCH, {{"ConfigureManager"}}},
+                        {crow::HTTPMethod::PUT, {{"ConfigureManager"}}},
+                        {crow::HTTPMethod::DELETE, {{"ConfigureManager"}}},
+                        {crow::HTTPMethod::POST, {{"ConfigureManager"}}}};
+  }
+
+ private:
+  /**
+   * Function handles GET method request.
+   * SystemActionsReset supports for POST method,
+   * it is not required to retrieve more information in GET.
+   */
+  void doGet(crow::response& res, const crow::request& req,
+             const std::vector<std::string>& params) override {
+    res.json_value = Node::json;
+    res.end();
+  }
+
+  /**
+   * Function handles POST method request.
+   * Analyzes POST body message before sends Reset request data to D-Bus.
+   */
+  void doPost(crow::response& res, const crow::request& req,
+             const std::vector<std::string>& params) override {
+    // Parse JSON request body.
+    nlohmann::json post;
+    if (!json_util::processJsonFromRequest(res, req, post)) {
+      return;
+    }
+    // Find key "ResetType" with reset request type
+    const std::string *reqResetType = nullptr;
+    json_util::Result r = json_util::getString(
+        "ResetType", post, reqResetType,
+        static_cast<int>(json_util::MessageSetting::TYPE_ERROR) |
+            static_cast<int>(json_util::MessageSetting::MISSING),
+        res.json_value, std::string("/ResetType"));
+    if ((r != json_util::Result::SUCCESS) || (reqResetType == nullptr)) {
+      res.code = static_cast<int>(HttpRespCode::BAD_REQUEST);
+      res.end();
+      return;
+    }
+    // Verify key value
+    if (std::find(provider.allowedResetType.begin(),
+                  provider.allowedResetType.end(), *reqResetType) ==
+        provider.allowedResetType.end()) {
+      res.code = static_cast<int>(HttpRespCode::BAD_REQUEST);
+      res.end();
+      return;
+    }
+
+    // Define metadata.
+    const dbus::endpoint objChassis = {
+        "xyz.openbmc_project.State.Chassis",
+        "/xyz/openbmc_project/state/chassis0",
+        "org.freedesktop.DBus.Properties", "Set"};
+    const dbus::endpoint objHost = {
+        "xyz.openbmc_project.State.Host",
+        "/xyz/openbmc_project/state/host0",
+        "org.freedesktop.DBus.Properties", "Set"};
+    const std::string ifaceChassis{"xyz.openbmc_project.State.Chassis"};
+    const std::string ifaceHost{"xyz.openbmc_project.State.Host"};
+    const std::string argChassis{"RequestedPowerTransition"};
+    const std::string argHost{"RequestedHostTransition"};
+    const std::string prefixArgChassis{
+                              "xyz.openbmc_project.State.Chassis.Transition."};
+    const std::string prefixArgHost{
+                              "xyz.openbmc_project.State.Host.Transition."};
+
+    auto asyncResp = std::make_shared<AsyncResp>(res);
+    // Execute Reset Action regarding to each reset type.
+    if (*reqResetType == "On") {
+      exeActionsReset(asyncResp, objHost, ifaceHost, argHost,
+                      dbus::dbus_variant(prefixArgHost + "On"));
+    } else if (*reqResetType == "GracefulShutdown") {
+      exeActionsReset(asyncResp, objHost, ifaceHost, argHost,
+                      dbus::dbus_variant(prefixArgHost + "Off"));
+    } else if (*reqResetType == "GracefulRestart") {
+      exeActionsReset(asyncResp, objHost, ifaceHost, argHost,
+                      dbus::dbus_variant(prefixArgHost + "Reboot"));
+    } else if (*reqResetType == "ForceOff") {
+      exeActionsReset(asyncResp, objChassis, ifaceChassis, argChassis,
+                      dbus::dbus_variant(prefixArgChassis + "Off"));
+    }
+  }
+
+  /**
+   * Function sends data to D-Bus directly.
+   * TODO consider to make it general.
+   */
+  void exeActionsReset(const std::shared_ptr<AsyncResp> &asyncResp,
+                       const dbus::endpoint &endpoint,
+                       const std::string &interface,
+                       const std::string &argument,
+                       const dbus::dbus_variant &variant) {
+    crow::connections::system_bus->async_method_call(
+      [ asyncResp ](const boost::system::error_code ec) {
+        if (ec) {
+          CROW_LOG_ERROR << "D-Bus responses error: " << ec;
+          asyncResp->res.code = static_cast<int>(HttpRespCode::INTERNAL_ERROR);
+          return;
+        }
+        // TODO Consider support polling mechanism to verify status of host and
+        // chassis after execute the requested action.
+        CROW_LOG_DEBUG << "Response with no content";
+        asyncResp->res.code = static_cast<int>(HttpRespCode::NO_CONTENT);
+      },
+      endpoint, interface, argument, variant);
+  }
+
+  OnDemandComputerSystemProvider provider;
+};
+
+/**
 * Systems derived class for delivering Computer Systems Schema.
 */
 class Systems : public Node {
  public:
   template <typename CrowApp>
   Systems(CrowApp &app)
-       : Node(app, "/redfish/v1/Systems/<str>/", std::string()) {
+       : Node(app, "/redfish/v1/Systems/<str>/", std::string()),
+         memberActionsReset(app) {
      Node::json["@odata.type"] = "#ComputerSystem.v1_5_0.ComputerSystem";
      Node::json["@odata.context"] =
                   "/redfish/v1/$metadata#ComputerSystem.ComputerSystem";
@@ -379,6 +516,9 @@ class Systems : public Node {
      Node::json["UUID"] = ""; // TODO get from fru.
      Node::json["SKU"] = ""; // TODO Not supported in D-Bus yet.
      Node::json["BiosVersion"] = ""; // TODO get real boot data.
+     Node::json["Actions"]["#ComputerSystem.Reset"] =
+      {{"target", "/redfish/v1/Systems/1/Actions/ComputerSystem.Reset"},
+       {"ResetType@Redfish.AllowableValues", provider.allowedResetType}};
 
      entityPrivileges = {{crow::HTTPMethod::GET, {{"Login"}}},
                          {crow::HTTPMethod::HEAD, {{"Login"}}},
@@ -443,6 +583,10 @@ class Systems : public Node {
         });
   }
 
+  /**
+   * Function handles PATCH request before
+   * triggers appropriate requests on D-Bus to change resource's property.
+   */
   void doPatch(crow::response &res, const crow::request &req,
                const std::vector<std::string> &params) override {
     // Check if there is required param, truly entering this shall be
@@ -539,6 +683,9 @@ class Systems : public Node {
     }
   }
 
+  // Reset actions as member of System resource.
+  // Handle POST action for specified reset type.
+  SystemActionsReset memberActionsReset;
   // Computer System Provider object.
   // TODO Consider to move it to singleton.
   OnDemandComputerSystemProvider provider;
