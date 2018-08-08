@@ -15,10 +15,46 @@
 */
 #pragma once
 
+#include <string>
+#include <chrono>
+#include <array>
+
 namespace redfish {
 
 // TODO: Consider finding a better way to retrieve domain name. Not to
 //       hardcode to a specific value
 static constexpr auto DOMAIN_NAME = ".amperecomputing.com";
+
+using SystemClock = std::chrono::system_clock;
+template<typename Duration>
+using SystemTimePoint = std::chrono::time_point<SystemClock, Duration>;
+using Milliseconds = std::chrono::milliseconds;
+
+
+/**
+ * @brief Converts the duration time since epoch to formatted date.
+ * @param[in] duration - time since the Epoch
+ * @param[in] format   - date format for strftime
+ * @return converted date with given format.
+ */
+template<typename Duration>
+std::string getDateTime(Duration duration, const char* format) {
+  std::array<char, 128> dateTime;
+  auto time = SystemClock::to_time_t(SystemTimePoint<Duration>{duration});
+  if (std::strftime(dateTime.begin(), dateTime.size(), format,
+                    std::localtime(&time))) {
+      return std::string(dateTime.data());
+  }
+  return "";
+}
+
+/**
+ * @brief get the current formatted datetime.
+ * @param[in] format   - date format for strftime
+ * @return converted current date with given format.
+ */
+std::string getCurrentDateTime(const char* format) {
+  return getDateTime(SystemClock::now().time_since_epoch(), format);
+}
 
 }   // namespace redfish;

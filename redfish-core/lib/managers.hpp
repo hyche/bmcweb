@@ -17,6 +17,7 @@
 #pragma once
 
 #include "node.hpp"
+#include "utils/ampere-utils.hpp"
 
 namespace redfish {
 
@@ -376,24 +377,15 @@ class Manager : public Node {
     manager_reset["ResetType@Redfish.AllowableValues"] = reset_type;
     Node::json["Actions"]["#Manager.Reset"] = manager_reset;
 
-    Node::json["DateTime"] = getDateTime();
+    std::string redfishDateTime = getCurrentDateTime("%FT%T%z");
+    // insert the colon required by the ISO 8601 standard
+    redfishDateTime.insert(redfishDateTime.end() - 2, ':');
+    Node::json["DateTime"] = redfishDateTime;
+    Node::json["DateTimeLocalOffset"] =
+        redfishDateTime.substr(redfishDateTime.length() - 6);
+
     res.json_value = Node::json;
     res.end();
-  }
-
-  std::string getDateTime() const {
-    std::array<char, 128> dateTime;
-    std::string redfishDateTime("0000-00-00T00:00:00Z00:00");
-    std::time_t time = std::time(nullptr);
-
-    if (std::strftime(dateTime.begin(), dateTime.size(), "%FT%T%z",
-                      std::localtime(&time))) {
-      // insert the colon required by the ISO 8601 standard
-      redfishDateTime = std::string(dateTime.data());
-      redfishDateTime.insert(redfishDateTime.end() - 2, ':');
-    }
-
-    return redfishDateTime;
   }
 
   // Software Provider object

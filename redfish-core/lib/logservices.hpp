@@ -18,6 +18,7 @@
 #pragma once
 
 #include "node.hpp"
+#include "utils/ampere-utils.hpp"
 #include <boost/container/flat_map.hpp>
 
 namespace redfish {
@@ -110,14 +111,11 @@ class OnDemandLogServiceProvider {
       // Retrieve event entry Id
       entry_data.id = extractProperty<uint32_t>(*entry_properties, "Id");
       // Convert timestamp (milliseconds from Epoch) to datetime
-      const uint64_t *millisTimeStamp  =
+      const uint64_t *timestamp =
         extractProperty<uint64_t>(*entry_properties, "Timestamp");
 
       // Retrieve Created property with format: yyyy-mm-ddThh:mm:ss
-      std::chrono::milliseconds chronoTimeStamp(*millisTimeStamp);
-      std::time_t timestamp =
-      std::chrono::duration_cast<std::chrono::seconds>(chronoTimeStamp).count();
-      entry_data.timestamp = getDateTime(timestamp, "%FT%R");
+      entry_data.timestamp = getDateTime(Milliseconds{*timestamp}, "%FT%R");
 
       // Retrieve Severity property
       const std::string *severity =
@@ -267,26 +265,6 @@ class OnDemandLogServiceProvider {
     }
     // In case the value has not been found
     return "";
-  }
-
-  /**
-   * Method returns Date Time information according to requested format
-   *
-   * @param[in] time time in second since the Epoch
-   * @param[in] format conversion specifier for strftime
-   *
-   * @return Date Time according to requested format
-   * TODO This method will be allocated in util.hpp
-   */
-  std::string getDateTime(const std::time_t &time, const char* format) {
-    std::array<char, 128> dateTime;
-    std::string redfishDateTime{};
-
-    if (std::strftime(dateTime.begin(), dateTime.size(), format,
-                      std::localtime(&time))) {
-      redfishDateTime = dateTime.data();
-    }
-    return redfishDateTime;
   }
 };
 
@@ -548,15 +526,12 @@ private:
    Node::json["OverWritePolicy"] = "WrapsWhenFull"; // TODO hardcoded
                                                     // should retrieve from
                                                     // Logging service
-   // Get DateTime with format: yyyy-mm-ddThh:mm:ssZhh:mm
-   const std::time_t time = std::time(nullptr);
-   std::string redfishDateTime =
-                             logservice_provider.getDateTime(time, "%FT%T%z");
-   redfishDateTime.insert(redfishDateTime.end() - 2, ':'); // hh:mm format
+   std::string redfishDateTime = getCurrentDateTime("%FT%T%z");
+   // insert the colon required by the ISO 8601 standard
+   redfishDateTime.insert(redfishDateTime.end() - 2, ':');
    Node::json["DateTime"] = redfishDateTime;
-   // Get DateTimeLocalOffset with format: Zhh:mm
    Node::json["DateTimeLocalOffset"] =
-   redfishDateTime.substr(redfishDateTime.length() - 6); // Time Zone position
+       redfishDateTime.substr(redfishDateTime.length() - 6);
    // TODO hardcoded ServiceEnabled property to true
    Node::json["ServiceEnabled"] = true;
    // TODO hardcoded Status information
