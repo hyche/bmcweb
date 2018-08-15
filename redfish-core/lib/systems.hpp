@@ -59,9 +59,10 @@ class OnDemandComputerSystemProvider {
                                     // (non-graceful shutdown).
                "GracefulRestart",   // Perform a graceful shutdown
                                     // followed by a restart of the system.
-               "GracefulShutdown"}; // Perform a graceful shutdown
+               "GracefulShutdown",  // Perform a graceful shutdown
                                     // and power off.
-                                    // TODO Need to support ForceRestart.
+               "ForceRestart"};     // Perform an immediate shutdown,
+                                    // followed by a restart.
 
   /**
   * Function that retrieves all properties of Computer System.
@@ -451,6 +452,9 @@ class SystemActionsReset : public Node {
     } else if (*reqResetType == "ForceOff") {
       exeActionsReset(asyncResp, objChassis, ifaceChassis, argChassis,
                       dbus::dbus_variant(prefixArgChassis + "Off"));
+    } else if (*reqResetType == "ForceRestart") {
+      exeActionsReset(asyncResp, objChassis, ifaceChassis, argChassis,
+                      dbus::dbus_variant(prefixArgChassis + "Reboot"));
     }
   }
 
