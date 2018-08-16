@@ -75,6 +75,7 @@ struct IPv6AddressData {
  * available from DBus
  */
 struct EthernetInterfaceData {
+  const bool *enabled;
   const unsigned int *speed;
   const bool *auto_neg;
   const std::string *hostname;
@@ -149,6 +150,16 @@ class OnDemandEthernetProvider {
   void extractEthernetInterfaceData(const std::string &ethiface_id,
                                     const GetManagedObjectsType &dbus_data,
                                     EthernetInterfaceData &eth_data) {
+    // Extract data that contains interface's status
+    const PropertiesMapType *status_properties = extractInterfaceProperties(
+        "/xyz/openbmc_project/network/" + ethiface_id,
+        "xyz.openbmc_project.State.Decorator.OperationalStatus", dbus_data);
+
+    if (status_properties != nullptr) {
+        eth_data.enabled =
+            extractProperty<bool>(*status_properties, "Functional");
+    }
+
     // Extract data that contains MAC Address
     const PropertiesMapType *mac_properties = extractInterfaceProperties(
         "/xyz/openbmc_project/network/" + ethiface_id,
@@ -980,6 +991,37 @@ class EthernetInterface : public Node {
     }
   }
 
+  void changeInterfaceStatus(const std::string &ifaceId,
+                             const nlohmann::json &input,
+                             const std::shared_ptr<AsyncResp> &asyncResp)
+                                const {
+    if (!input.is_boolean()) {
+      messages::addMessageToJson(
+          asyncResp->res.json_value,
+          messages::propertyValueTypeError(input.dump(), "InterfaceEnabled"),
+          "/InterfaceEnabled");
+      return;
+    }
+
+    bool value = input.get<bool>();
+    auto handler = [asyncResp, value](const boost::system::error_code ec) {
+      if (ec) {
+        messages::addMessageToJson(
+            asyncResp->res.json_value, messages::internalError(),
+            "/InterfaceEnabled");
+      } else {
+        asyncResp->res.json_value["InterfaceEnabled"] = value;
+      }
+    };
+
+    crow::connections::system_bus->async_method_call(
+        std::move(handler), {"xyz.openbmc_project.Network",
+        "/xyz/openbmc_project/network/" + ifaceId,
+        "org.freedesktop.DBus.Properties", "Set"},
+        "xyz.openbmc_project.State.Decorator.OperationalStatus", "Functional",
+        dbus::dbus_variant(value));
+  }
+
   nlohmann::json parseInterfaceData(
       const std::string &iface_id, const EthernetInterfaceData &eth_data,
       const std::vector<IPv4AddressData> &ipv4_data,
@@ -993,6 +1035,9 @@ class EthernetInterface : public Node {
         "/redfish/v1/Managers/bmc/EthernetInterfaces/" + iface_id;
 
     // ... then the one from DBus, regarding eth iface...
+    if (eth_data.enabled != nullptr)
+      json_response["InterfaceEnabled"] = *eth_data.enabled;
+
     if (eth_data.auto_neg != nullptr)
       json_response["AutoNeg"] = *eth_data.auto_neg;
 
@@ -1144,6 +1189,8 @@ class EthernetInterface : public Node {
               messages::addMessageToJsonRoot(
                   res.json_value,
                   messages::propertyNotWritable(propertyIt.key()));
+            } else if (propertyIt.key() == "InterfaceEnabled") {
+                changeInterfaceStatus(iface_id, propertyIt.value(), asyncResp);
             } else {
               auto fieldInJsonIt = res.json_value.find(propertyIt.key());
 
