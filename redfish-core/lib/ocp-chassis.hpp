@@ -153,8 +153,18 @@ class OnDemandChassisProvider {
                   aResp->res.json_value["PowerState"] = "Off";
                   aResp->res.json_value["Status"]["State"] = "Disabled";
                 }
-                // TODO Currenlty, not support "Health" property yet
-                aResp->res.json_value["Status"]["Health"] = "";
+              }
+            }
+          }
+          it = properties.find("HealthState");
+          if (it != properties.end()) {
+            const std::string *s = boost::get<std::string>(&it->second);
+            if (s != nullptr) {
+              // Retrieve the Health value from:
+              // xyz.openbmc_project.State.Chassis.Health.<state>
+              const std::size_t pos = s->rfind('.');
+              if (pos != std::string::npos) {
+                aResp->res.json_value["Status"]["Health"] = s->substr(pos + 1);
               }
             }
           }
@@ -189,7 +199,8 @@ class Chassis : public Node {
     // TODO Initial State for chassis
     Node::json["PowerState"] = "Off";
     Node::json["Status"]["State"] = "Disabled";
-    Node::json["Status"]["Health"] = "";
+    Node::json["Status"]["Health"] = "OK"; // Resource can response so assume
+                                           // default Health state is Ok.
 
 
     entityPrivileges = {{crow::HTTPMethod::GET, {{"Login"}}},
@@ -211,7 +222,6 @@ class Chassis : public Node {
     // Create JSON copy based on Node::json, this is to avoid possible
     // race condition
     nlohmann::json json_response(Node::json);
-
     // Thermal object
     json_response["Thermal"] = {
                         {"@odata.id", "/redfish/v1/Chassis/1/Thermal"}};
