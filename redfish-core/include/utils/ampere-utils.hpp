@@ -43,7 +43,7 @@ std::string getDateTime(Duration duration, const char* format) {
   auto time = SystemClock::to_time_t(SystemTimePoint<Duration>{duration});
   if (std::strftime(dateTime.begin(), dateTime.size(), format,
                     std::localtime(&time))) {
-      return std::string(dateTime.data());
+      return dateTime.data();
   }
   return "";
 }
