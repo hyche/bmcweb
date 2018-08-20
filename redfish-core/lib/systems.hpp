@@ -317,6 +317,49 @@ class OnDemandComputerSystemProvider {
                                                      ifaceName);
   }
 
+  /**
+   * @brief Retrieves Host Bios Version properties over D-Bus.
+   *
+   * @param[in] asyncResp  Shared pointer for completing asynchronous calls.
+   *
+   * @return None.
+   */
+  void getBiosVersion(const std::shared_ptr<AsyncResp> &asyncResp) {
+    CROW_LOG_DEBUG << "Get Host Software properties.";
+    const dbus::endpoint objHostUpdater = {
+      "xyz.openbmc_project.Software.Host.Updater",
+      "/xyz/openbmc_project/software/host/inventory",
+      "org.freedesktop.DBus.Properties", "GetAll"};
+    const std::string ifaceName = "xyz.openbmc_project.Software.Host";
+
+    auto resp_handler = [ asyncResp ](
+                            const boost::system::error_code ec,
+                            const PropertiesType &properties) {
+      if (ec) {
+        CROW_LOG_ERROR << "D-Bus response error " << ec;
+        asyncResp->res.code = static_cast<int>(HttpRespCode::INTERNAL_ERROR);
+        return;
+      }
+      CROW_LOG_DEBUG << "Got " << properties.size() << " properties.";
+      std::string output{};   // Initial output Bios Version as Null.
+      PropertiesType::const_iterator it = properties.find("BiosVersion");
+      if (it != properties.end()) {
+        const std::string *s =
+              boost::get<std::string>(&it->second);
+        if (nullptr != s) {
+          CROW_LOG_DEBUG << "Found BiosVersion: " << *s;
+          output = *s;
+        }
+      }
+      // Update JSON payload with Bios Version information.
+      asyncResp->res.json_value["BiosVersion"] = output;
+    };
+    // Make call to Host service.
+    crow::connections::system_bus->async_method_call(resp_handler,
+                                                     objHostUpdater,
+                                                     ifaceName);
+  }
+
 };
 
 /**
@@ -519,7 +562,6 @@ class Systems : public Node {
      Node::json["Id"] = 1; // TODO hardcoded number of base board to 1.
      Node::json["UUID"] = ""; // TODO get from fru.
      Node::json["SKU"] = ""; // TODO Not supported in D-Bus yet.
-     Node::json["BiosVersion"] = ""; // TODO get real boot data.
      Node::json["Actions"]["#ComputerSystem.Reset"] =
       {{"target", "/redfish/v1/Systems/1/Actions/ComputerSystem.Reset"},
        {"ResetType@Redfish.AllowableValues", provider.allowedResetType}};
@@ -585,6 +627,9 @@ class Systems : public Node {
             asyncResp->res.json_value["IndicatorLED"] = "Off";
           }
         });
+
+    // Get BiosVersion property
+    provider.getBiosVersion(asyncResp);
   }
 
   /**
