@@ -179,8 +179,18 @@ class OnDemandComputerSystemProvider {
             } else {
               CROW_LOG_ERROR << "Invalid host state: " << hostState;
             }
-            // TODO D-Bus does not support to retrieve Health property yet.
-            asyncResp->res.json_value["Status"]["Health"] = "";
+          }
+        }
+      }
+      it = properties.find("HealthState");
+      if (it != properties.end()) {
+        const std::string *s = boost::get<std::string>(&it->second);
+        if (s != nullptr) {
+          // Retrieve the Health value from:
+          // xyz.openbmc_project.State.Host.Health.<state>
+          const std::size_t pos = s->rfind('.');
+          if (pos != std::string::npos) {
+            asyncResp->res.json_value["Status"]["Health"] = s->substr(pos + 1);
           }
         }
       }
@@ -562,6 +572,9 @@ class Systems : public Node {
      Node::json["Id"] = 1; // TODO hardcoded number of base board to 1.
      Node::json["UUID"] = ""; // TODO get from fru.
      Node::json["SKU"] = ""; // TODO Not supported in D-Bus yet.
+     Node::json["Status"]["Health"] = "OK"; // Resource can response so assume
+                                            // default Health state is Ok.
+
      Node::json["Actions"]["#ComputerSystem.Reset"] =
       {{"target", "/redfish/v1/Systems/1/Actions/ComputerSystem.Reset"},
        {"ResetType@Redfish.AllowableValues", provider.allowedResetType}};
