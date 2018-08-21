@@ -370,6 +370,60 @@ class OnDemandComputerSystemProvider {
                                                      ifaceName);
   }
 
+  /**
+  * Function that retrieves all properties of processor interface.
+  * @param[in] asyncResp     Shared pointer for completing asynchronous calls.
+  * @return None.
+  */
+  void getProcessorSummary(const std::shared_ptr<AsyncResp> &asyncResp) {
+    CROW_LOG_DEBUG << "Get processor summary object...";
+    const dbus::endpoint objHostUpdater = {
+      "xyz.openbmc_project.Software.Host.Updater",
+      "/xyz/openbmc_project/software/host/inventory",
+      "org.freedesktop.DBus.Properties", "GetAll"};
+    const std::string ifaceName = "xyz.openbmc_project.Software.Host.Processor";
+
+    auto resp_handler = [ asyncResp ](
+                            const boost::system::error_code ec,
+                            const PropertiesType &properties) {
+      if (ec) {
+        CROW_LOG_ERROR << "D-Bus response error " << ec;
+        asyncResp->res.code = static_cast<int>(HttpRespCode::INTERNAL_ERROR);
+        return;
+      }
+      CROW_LOG_DEBUG << "Got " << properties.size() << " properties.";
+
+      // Prepare all the schema required fields which retrieved from D-Bus.
+      for (const char *p :
+           std::array<const char *, 4>
+               {"Count",
+                "Model",
+                "State",
+                "Health"}) {
+        PropertiesType::const_iterator it = properties.find(p);
+        if (it != properties.end()) {
+          if (p == "Count") {
+            const uint32_t *count = boost::get<uint32_t>(&it->second);
+            if (count != nullptr)
+              asyncResp->res.json_value["ProcessorSummary"]["Count"] = *count;
+          } else {
+            const std::string *s = boost::get<std::string>(&it->second);
+            if (s != nullptr) {
+              if (p == "State" || p == "Health")
+                asyncResp->res.json_value["ProcessorSummary"]["Status"][p] = *s;
+              else
+                asyncResp->res.json_value["ProcessorSummary"][p] = *s;
+            }
+          }
+        }
+      }
+
+    };
+     // Make call to Host service.
+    crow::connections::system_bus->async_method_call(resp_handler,
+                                                     objHostUpdater,
+                                                     ifaceName);
+  }
 };
 
 /**
@@ -643,6 +697,8 @@ class Systems : public Node {
 
     // Get BiosVersion property
     provider.getBiosVersion(asyncResp);
+    // Get Processor property
+    provider.getProcessorSummary(asyncResp);
   }
 
   /**
