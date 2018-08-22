@@ -345,23 +345,22 @@ void objectInterfacesToJson(
         const int64_t* int64Value = boost::get<int64_t>(&valueVariant);
 
         if (int64Value != nullptr) {
+            auto value = *int64Value * std::pow(10, scaleMultiplier);
           if (forceToInt || scaleMultiplier >= 0) {
-            value_it = *int64Value * std::pow(10, scaleMultiplier);
+            value_it = static_cast<int64_t>(value);
           } else {
-            value_it = *int64Value *
-                       std::pow(10, static_cast<double>(scaleMultiplier));
+            value_it = value;
           }
         }
         // Attempt to pull the float directly
         const double* doubleValue = boost::get<double>(&valueVariant);
 
         if (doubleValue != nullptr) {
+            auto value = *doubleValue * std::pow(10, scaleMultiplier);
           if (!forceToInt) {
-            value_it = *doubleValue *
-                       std::pow(10, static_cast<double>(scaleMultiplier));
+            value_it = value;
           } else {
-            value_it = static_cast<int64_t>(*doubleValue *
-                                            std::pow(10, scaleMultiplier));
+            value_it = static_cast<int64_t>(value);
           }
         }
       }
