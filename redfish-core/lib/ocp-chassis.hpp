@@ -191,7 +191,7 @@ class Chassis : public Node {
     Node::json["@odata.id"] = "/redfish/v1/Chassis/1";
     Node::json["@odata.context"] = "/redfish/v1/$metadata#Chassis.Chassis";
     Node::json["Name"] = "Ampere System Chassis"; // TODO hardcode in temporary.
-    Node::json["ChassisType"] = "Rack Mount Chassis";
+    Node::json["ChassisType"] = "RackMount";
     Node::json["Id"] = "1";
     // TODO Currently not support "SKU" and "AssetTag" yet
     Node::json["SKU"] = "";
