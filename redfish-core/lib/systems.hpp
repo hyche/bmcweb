@@ -675,7 +675,6 @@ class Systems : public Node {
                     {{{"@odata.id", "/redfish/v1/Chassis/1"}}};
      Node::json["Links"]["ManagedBy"] =
                     {{{"@odata.id", "/redfish/v1/Managers/bmc"}}};
-     Node::json["Id"] = 1; // TODO hardcoded number of base board to 1.
      Node::json["UUID"] = ""; // TODO get from fru.
      Node::json["SKU"] = ""; // TODO Not supported in D-Bus yet.
      Node::json["Status"]["Health"] = "OK"; // Resource can response so assume
@@ -699,18 +698,18 @@ class Systems : public Node {
    */
   void doGet(crow::response &res, const crow::request &req,
               const std::vector<std::string> &params) override {
-    // Check if there is required param, truly entering this shall be
-    // impossible
-    if (params.size() != 1) {
-      res.code = static_cast<int>(HttpRespCode::INTERNAL_ERROR);
+    // Get system id
+    const std::string &id = params[0];
+    if (id != "1") {
+      // only 1 System for now
+      res.code = static_cast<int>(HttpRespCode::NOT_FOUND);
       res.end();
       return;
     }
 
-    // Get system id
-    const std::string &id = params[0];
-
     res.json_value = Node::json;
+
+    res.json_value["Id"] = id;
     res.json_value["@odata.id"] = "/redfish/v1/Systems/" + id;
 
     // Create asyncResp pointer to object holding the response data
