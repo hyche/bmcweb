@@ -64,6 +64,15 @@ class OnDemandComputerSystemProvider {
                "ForceRestart"};     // Perform an immediate shutdown,
                                     // followed by a restart.
 
+  // List of allowed boot source to be overridden.
+  // TODO These should be retrieved from D-Bus.
+  const std::vector<std::string> allowedBootSourceTarget{
+               "None", // Boot from the normal boot device.
+               "Pxe", // Boot from the Pre-Boot EXecution (PXE) environment.
+               "Usb", // Boot from a USB device as specified by the system BIOS.
+               "Hdd", // Boot from a hard drive.
+               "UefiShell"}; // Boot to the UEFI Shell.
+
   /**
   * Function that retrieves all properties of Computer System.
   * @param[in] asyncResp Shared pointer for completing asynchronous calls.
@@ -476,6 +485,49 @@ class OnDemandComputerSystemProvider {
                                                      ifaceName);
   }
 
+  /**
+  * Function that retrieves all properties of boot interface.
+  * @param[in] asyncResp     Shared pointer for completing asynchronous calls.
+  * @return None.
+  */
+  void getBootPolicy(const std::shared_ptr<AsyncResp> &asyncResp) {
+    CROW_LOG_DEBUG << "Get boot object...";
+    const dbus::endpoint objHostUpdater = {
+      "xyz.openbmc_project.Software.Host.Updater",
+      "/xyz/openbmc_project/software/host/inventory",
+      "org.freedesktop.DBus.Properties", "GetAll"};
+    const std::string ifaceName = "xyz.openbmc_project.Software.Host.Boot";
+
+    auto resp_handler = [ asyncResp ](
+                            const boost::system::error_code ec,
+                            const PropertiesType &properties) {
+      if (ec) {
+        CROW_LOG_ERROR << "D-Bus response error " << ec;
+        asyncResp->res.code = static_cast<int>(HttpRespCode::INTERNAL_ERROR);
+        return;
+      }
+      CROW_LOG_DEBUG << "Got " << properties.size() << " properties.";
+
+      // Prepare all the schema required fields which retrieved from D-Bus.
+      for (const char *p :
+           std::array<const char *, 2>
+               {"BootSourceOverrideEnabled",
+                "BootSourceOverrideTarget"}) {
+        PropertiesType::const_iterator it = properties.find(p);
+        if (it != properties.end()) {
+           const std::string *s = boost::get<std::string>(&it->second);
+            if (s != nullptr)
+                asyncResp->res.json_value["Boot"][p] = *s;
+        }
+      }
+
+    };
+     // Make call to Host service.
+    crow::connections::system_bus->async_method_call(resp_handler,
+                                                     objHostUpdater,
+                                                     ifaceName);
+  }
+
 };
 
 /**
@@ -660,15 +712,6 @@ class Systems : public Node {
 
      Node::json["SystemType"] = "Physical";
      Node::json["Description"] = "Computer System";
-     Node::json["Boot"]["BootSourceOverrideEnabled"] =
-       "Disabled";  // TODO get real boot data
-     Node::json["Boot"]["BootSourceOverrideTarget"] =
-       "None";  // TODO get real boot data
-     Node::json["Boot"]["BootSourceOverrideMode"] =
-       "Legacy";  // TODO get real boot data
-     Node::json["Boot"]["BootSourceOverrideTarget@Redfish.AllowableValues"] = {
-       "None", "Pxe", "Hdd", "Usb"};  // TODO get real boot data
-
      Node::json["LogServices"] =
                      {{"@odata.id", "/redfish/v1/Systems/1/LogServices"}};
      Node::json["Links"]["Chassis"] =
@@ -683,6 +726,8 @@ class Systems : public Node {
      Node::json["Actions"]["#ComputerSystem.Reset"] =
       {{"target", "/redfish/v1/Systems/1/Actions/ComputerSystem.Reset"},
        {"ResetType@Redfish.AllowableValues", provider.allowedResetType}};
+     Node::json["Boot"]["BootSourceOverrideTarget@Redfish.AllowableValues"] =
+       provider.allowedBootSourceTarget;
 
      entityPrivileges = {{crow::HTTPMethod::GET, {{"Login"}}},
                          {crow::HTTPMethod::HEAD, {{"Login"}}},
@@ -752,6 +797,8 @@ class Systems : public Node {
     provider.getProcessorSummary(asyncResp);
     // Get Memory Summary property
     provider.getMemorySummary(asyncResp);
+    // Get Boot Override Policy
+    provider.getBootPolicy(asyncResp);
   }
 
   /**
