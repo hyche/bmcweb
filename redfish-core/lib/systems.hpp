@@ -819,11 +819,103 @@ class Systems : public Node {
     if (!json_util::processJsonFromRequest(res, req, patch)) {
       return;
     }
+
+    //std::shared_ptr<AsyncResp> asyncResp = std::make_shared<AsyncResp>(res);
+    for (auto propertyIt = patch.begin(); propertyIt != patch.end();
+         ++propertyIt) {
+      if (propertyIt.key() == "IndicatorLED") {
+        changeIndicatorLEDState(res, patch, params);
+      } else if (propertyIt.key() == "BootSourceOverrideEnabled") {
+        changeBootSourceOverridePolicy(res, patch, params);
+      } else {
+        // User attempted to modify non-writable field
+        messages::addMessageToJsonRoot(
+            res.json_value,
+            messages::propertyNotWritable(propertyIt.key()));
+      }
+    }
+  }
+
+  void changeBootSourceOverridePolicy(crow::response &res,
+                                      const nlohmann::json& reqJson,
+                                      const std::vector<std::string> &params) {
+    CROW_LOG_DEBUG << "Request to change Boot Source Override policy";
+    // Find key with new override policy
+    const std::string &name = params[0];
+    const std::string *reqOverridePolicy = nullptr;
+    json_util::Result r = json_util::getString(
+        "BootSourceOverrideEnabled", reqJson, reqOverridePolicy,
+        static_cast<int>(json_util::MessageSetting::TYPE_ERROR) |
+            static_cast<int>(json_util::MessageSetting::MISSING),
+        res.json_value, std::string("/" + name +
+                                    "Boot/BootSourceOverrideEnabled"));
+    if ((r != json_util::Result::SUCCESS) || (reqOverridePolicy == nullptr)) {
+      res.code = static_cast<int>(HttpRespCode::BAD_REQUEST);
+      res.end();
+      return;
+    }
+
+    // List of allowed policies overriding boot source.
+    // TODO These should be retrieved from D-Bus.
+    const std::vector<std::string> allowedPolicy{
+      "Disabled", // The system will boot normally.
+      "Once", // On its next boot cycle, the system will boot (one time)
+              // to the Boot Source Override Target.
+              // The value of BootSourceOverrideEnabled is then
+              // reset back to Disabled.
+      "Continuous"}; // The system will boot to the target specified in
+                     // the BootSourceOverrideTarget until
+                     // this property is set to Disabled.
+
+    // Verify request value
+    auto it = std::find(allowedPolicy.begin(), allowedPolicy.end(),
+                        *reqOverridePolicy);
+    if (it == allowedPolicy.end()) {
+      res.code = static_cast<int>(HttpRespCode::BAD_REQUEST);
+      res.end();
+      return;
+    }
+
+    auto asyncResp = std::make_shared<AsyncResp>(res);
+    res.json_value = Node::json;
+    res.json_value["@odata.id"] = "/redfish/v1/Systems/" + name;
+
+    // Get Boot Override Policy
+    provider.getBootPolicy(asyncResp);
+
+    const dbus::endpoint objHostUpdater = {
+      "xyz.openbmc_project.Software.Host.Updater",
+      "/xyz/openbmc_project/software/host/inventory",
+      "org.freedesktop.DBus.Properties", "Set"};
+    const std::string ifaceName = "xyz.openbmc_project.Software.Host.Boot";
+    const std::string property = "BootSourceOverrideEnabled";
+    const std::string reqValue = *reqOverridePolicy;
+
+    auto resp_handler = [reqValue{std::move(reqValue)},
+                         asyncResp{std::move(asyncResp)}](
+        const boost::system::error_code ec) {
+      if (ec) {
+        CROW_LOG_ERROR << "D-Bus response error " << ec;
+        asyncResp->res.code = static_cast<int>(HttpRespCode::INTERNAL_ERROR);
+        return;
+      }
+      CROW_LOG_DEBUG << "Boot Source Override policy update done.";
+      asyncResp->res.json_value["Boot"]["BootSourceOverrideEnabled"] =
+        std::move(reqValue);
+    };
+    crow::connections::system_bus->async_method_call(resp_handler,
+        objHostUpdater, ifaceName, property,
+        dbus::dbus_variant(*reqOverridePolicy));
+  }
+
+  void changeIndicatorLEDState(crow::response &res,
+                               const nlohmann::json& reqJson,
+                               const std::vector<std::string> &params) {
     // Find key with new led value
     const std::string &name = params[0];
     const std::string *reqLedState = nullptr;
     json_util::Result r = json_util::getString(
-        "IndicatorLED", patch, reqLedState,
+        "IndicatorLED", reqJson, reqLedState,
         static_cast<int>(json_util::MessageSetting::TYPE_ERROR) |
             static_cast<int>(json_util::MessageSetting::MISSING),
         res.json_value, std::string("/" + name + "/IndicatorLED"));
