@@ -529,6 +529,49 @@ class OnDemandComputerSystemProvider {
                                                      ifaceName);
   }
 
+  /**
+   * @brief Retrieves System Unique ID (UUID) properties over D-Bus.
+   *
+   * @param[in] asyncResp  Shared pointer for completing asynchronous calls.
+   *
+   * @return None.
+   */
+  void getSystemUniqueID(const std::shared_ptr<AsyncResp> &asyncResp) {
+    CROW_LOG_DEBUG << "Get System Unique ID properties.";
+    const dbus::endpoint objFRUManager = {
+      "xyz.openbmc_project.Inventory.FRU",
+      "/xyz/openbmc_project/inventory/fru0/multirecord",
+      "org.freedesktop.DBus.Properties", "GetAll"};
+    const std::string ifaceName =
+      "xyz.openbmc_project.Inventory.FRU.MultiRecord";
+
+    auto resp_handler = [ asyncResp ](
+                            const boost::system::error_code ec,
+                            const PropertiesType &properties) {
+      if (ec) {
+        CROW_LOG_ERROR << "D-Bus response error " << ec;
+        asyncResp->res.code = static_cast<int>(HttpRespCode::INTERNAL_ERROR);
+        return;
+      }
+      CROW_LOG_DEBUG << "Got " << properties.size() << " properties.";
+      std::string output{};   // Initial output UUID as Null.
+      PropertiesType::const_iterator it = properties.find("Record_1");
+      if (it != properties.end()) {
+        const std::string *s =
+              boost::get<std::string>(&it->second);
+        if (nullptr != s) {
+          CROW_LOG_DEBUG << "Found UUID: " << *s;
+          output = *s;
+        }
+      }
+      // Update JSON payload with UUID information.
+      asyncResp->res.json_value["UUID"] = output;
+    };
+    // Make call to Host service.
+    crow::connections::system_bus->async_method_call(resp_handler,
+                                                     objFRUManager,
+                                                     ifaceName);
+  }
 };
 
 /**
@@ -719,7 +762,6 @@ class Systems : public Node {
                     {{{"@odata.id", "/redfish/v1/Chassis/1"}}};
      Node::json["Links"]["ManagedBy"] =
                     {{{"@odata.id", "/redfish/v1/Managers/bmc"}}};
-     Node::json["UUID"] = ""; // TODO get from fru.
      Node::json["SKU"] = ""; // TODO Not supported in D-Bus yet.
      Node::json["Status"]["Health"] = "OK"; // Resource can response so assume
                                             // default Health state is Ok.
@@ -800,6 +842,8 @@ class Systems : public Node {
     provider.getMemorySummary(asyncResp);
     // Get Boot Override Policy
     provider.getBootPolicy(asyncResp);
+    // Get System UUID
+    provider.getSystemUniqueID(asyncResp);
   }
 
   /**
