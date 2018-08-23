@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <error_messages.hpp>
 #include <utils/json_utils.hpp>
 #include "node.hpp"
 #include <boost/container/flat_map.hpp>
@@ -820,13 +821,13 @@ class Systems : public Node {
       return;
     }
 
-    //std::shared_ptr<AsyncResp> asyncResp = std::make_shared<AsyncResp>(res);
     for (auto propertyIt = patch.begin(); propertyIt != patch.end();
          ++propertyIt) {
       if (propertyIt.key() == "IndicatorLED") {
         changeIndicatorLEDState(res, patch, params);
-      } else if (propertyIt.key() == "BootSourceOverrideEnabled") {
-        changeBootSourceOverridePolicy(res, patch, params);
+      } else if (propertyIt.key() == "BootSourceOverrideEnabled" ||
+                 propertyIt.key() == "BootSourceOverrideTarget") {
+        changeBootSourceOverridePolicy(res, patch, propertyIt.key(), params);
       } else {
         // User attempted to modify non-writable field
         messages::addMessageToJsonRoot(
@@ -838,17 +839,18 @@ class Systems : public Node {
 
   void changeBootSourceOverridePolicy(crow::response &res,
                                       const nlohmann::json& reqJson,
+                                      const std::string &key,
                                       const std::vector<std::string> &params) {
     CROW_LOG_DEBUG << "Request to change Boot Source Override policy";
     // Find key with new override policy
     const std::string &name = params[0];
     const std::string *reqOverridePolicy = nullptr;
     json_util::Result r = json_util::getString(
-        "BootSourceOverrideEnabled", reqJson, reqOverridePolicy,
+        key.c_str(), reqJson, reqOverridePolicy,
         static_cast<int>(json_util::MessageSetting::TYPE_ERROR) |
             static_cast<int>(json_util::MessageSetting::MISSING),
         res.json_value, std::string("/" + name +
-                                    "Boot/BootSourceOverrideEnabled"));
+                                    "Boot/" + key));
     if ((r != json_util::Result::SUCCESS) || (reqOverridePolicy == nullptr)) {
       res.code = static_cast<int>(HttpRespCode::BAD_REQUEST);
       res.end();
@@ -868,12 +870,23 @@ class Systems : public Node {
                      // this property is set to Disabled.
 
     // Verify request value
-    auto it = std::find(allowedPolicy.begin(), allowedPolicy.end(),
-                        *reqOverridePolicy);
-    if (it == allowedPolicy.end()) {
-      res.code = static_cast<int>(HttpRespCode::BAD_REQUEST);
-      res.end();
-      return;
+    if (key == "BootSourceOverrideTarget") {
+      auto it = std::find(provider.allowedBootSourceTarget.begin(),
+                          provider.allowedBootSourceTarget.end(),
+                          *reqOverridePolicy);
+      if (it == provider.allowedBootSourceTarget.end()) {
+        res.code = static_cast<int>(HttpRespCode::BAD_REQUEST);
+        res.end();
+        return;
+      }
+    } else if (key == "BootSourceOverrideEnabled") {
+      auto it = std::find(allowedPolicy.begin(), allowedPolicy.end(),
+                          *reqOverridePolicy);
+      if (it == allowedPolicy.end()) {
+        res.code = static_cast<int>(HttpRespCode::BAD_REQUEST);
+        res.end();
+        return;
+      }
     }
 
     auto asyncResp = std::make_shared<AsyncResp>(res);
@@ -888,10 +901,9 @@ class Systems : public Node {
       "/xyz/openbmc_project/software/host/inventory",
       "org.freedesktop.DBus.Properties", "Set"};
     const std::string ifaceName = "xyz.openbmc_project.Software.Host.Boot";
-    const std::string property = "BootSourceOverrideEnabled";
     const std::string reqValue = *reqOverridePolicy;
 
-    auto resp_handler = [reqValue{std::move(reqValue)},
+    auto resp_handler = [key{std::move(key)}, reqValue{std::move(reqValue)},
                          asyncResp{std::move(asyncResp)}](
         const boost::system::error_code ec) {
       if (ec) {
@@ -900,11 +912,10 @@ class Systems : public Node {
         return;
       }
       CROW_LOG_DEBUG << "Boot Source Override policy update done.";
-      asyncResp->res.json_value["Boot"]["BootSourceOverrideEnabled"] =
-        std::move(reqValue);
+      asyncResp->res.json_value["Boot"][key] = std::move(reqValue);
     };
     crow::connections::system_bus->async_method_call(resp_handler,
-        objHostUpdater, ifaceName, property,
+        objHostUpdater, ifaceName, key,
         dbus::dbus_variant(*reqOverridePolicy));
   }
 
