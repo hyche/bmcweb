@@ -455,9 +455,9 @@ void getChassisData(const std::shared_ptr<SensorAsyncResp>& sensorAsyncResp) {
                 } else if (sensorType == "voltage") {
                   fieldName = "Voltages";
                 } else if (sensorType == "current") {
-                  fieldName = "PowerSupply";
+                  fieldName = "PowerSupplies";
                 } else if (sensorType == "power") {
-                  fieldName = "PowerSupply";
+                  fieldName = "PowerSupplies";
                 } else {
                   CROW_LOG_ERROR << "Unsure how to handle sensorType "
                                  << sensorType;
