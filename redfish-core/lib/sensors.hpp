@@ -326,6 +326,9 @@ void objectInterfacesToJson(
                             "MinReadingRangeTemp");
     properties.emplace_back("xyz.openbmc_project.Sensor.Value", "MaxValue",
                             "MaxReadingRangeTemp");
+  } else if (sensorType == "power") {
+    // TODO Power schema does not include MinReadingRange/MaxReadingRange,
+    // This should be replaced by PowerInputWatts/PowerOutputWatts...
   } else {
     properties.emplace_back("xyz.openbmc_project.Sensor.Value", "MinValue",
                             "MinReadingRange");
