@@ -277,7 +277,7 @@ class LogEntry : public Node {
   LogEntry(CrowApp &app)
     : Node(app, "/redfish/v1/Systems/1/LogServices/SEL/Entries/<str>/",
            std::string()){
-    Node::json["@odata.type"] = "#LogService.v1_3_0.LogService";
+    Node::json["@odata.type"] = "#LogEntry.v1_3_0.LogEntry";
     Node::json["@odata.context"] =
                               "/redfish/v1/$metadata#LogEntry.LogEntry";
     Node::json["EntryType"] = "SEL"; // System Event Log
