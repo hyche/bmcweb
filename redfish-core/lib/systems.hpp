@@ -84,8 +84,8 @@ class OnDemandComputerSystemProvider {
                          const std::string& ifaceName) {
     CROW_LOG_DEBUG << "Get Computer System information... ";
     const dbus::endpoint objComputerSystem = {
-        "xyz.openbmc_project.Inventory.Manager",
-        "/xyz/openbmc_project/inventory/system",
+        "xyz.openbmc_project.Inventory.FRU",
+        "/xyz/openbmc_project/inventory/fru0/product",
         "org.freedesktop.DBus.Properties", "GetAll"};
     // Process response and extract data
     auto resp_handler = [ asyncResp, ifaceName ](
@@ -98,40 +98,26 @@ class OnDemandComputerSystemProvider {
       }
 
       // Verify ifaceName
-      if (ifaceName == "xyz.openbmc_project.Inventory.Decorator.Asset") {
-        // Prepare all the schema required fields which retrieved from D-Bus.
-        for (const char *p :
-             std::array<const char *, 4>
-                 {"Manufacturer",
-                  "Model",
-                  "PartNumber",
-                  "SerialNumber"}) {
+      if (ifaceName == "xyz.openbmc_project.Inventory.FRU.Product") {
+        for (auto& p : std::array<const std::string, 5> {"Asset_Tag",
+                                                         "Manufacturer",
+                                                         "Model_Number",
+                                                         "Name",
+                                                         "Serial_Number"}) {
           PropertiesType::const_iterator it = properties.find(p);
           if (it != properties.end()) {
             const std::string *s = boost::get<std::string>(&it->second);
             if (s != nullptr) {
-              asyncResp->res.json_value[p] = *s;
+              if (p == "Asset_Tag") {
+                asyncResp->res.json_value["AssetTag"] = *s;
+              } else if (p == "Model_Number") {
+                asyncResp->res.json_value["Model"] = *s;
+              } else if (p == "Serial_Number") {
+                asyncResp->res.json_value["SerialNumber"] = *s;
+              } else {
+                asyncResp->res.json_value[p] = *s;
+              }
             }
-          }
-        }
-      } else if (ifaceName == "xyz.openbmc_project.Inventory.Item") {
-        // Look for PrettyName property
-        PropertiesType::const_iterator it = properties.find("PrettyName");
-        if (it != properties.end()) {
-          const std::string *s = boost::get<std::string>(&it->second);
-          if (s != nullptr) {
-            asyncResp->res.json_value["Name"] = *s;
-          }
-        }
-      } else if (ifaceName ==
-                 "xyz.openbmc_project.Inventory.Decorator.AssetTag") {
-        // Look for AssetTag property
-        PropertiesType::const_iterator it = properties.find("AssetTag");
-        if (it != properties.end()) {
-          const std::string *s = boost::get<std::string>(&it->second);
-          if (s != nullptr) {
-            CROW_LOG_DEBUG << "Found AssetTag: " << *s;
-            asyncResp->res.json_value["AssetTag"] = *s;
           }
         }
       } else {
@@ -803,13 +789,8 @@ class Systems : public Node {
     // Create asyncResp pointer to object holding the response data
     auto asyncResp = std::make_shared<AsyncResp>(res);
     // Get Computer System information via interface name
-    const std::array<const std::string, 3> arrayIfaceName
-    {"xyz.openbmc_project.Inventory.Decorator.Asset",
-     "xyz.openbmc_project.Inventory.Item",
-     "xyz.openbmc_project.Inventory.Decorator.AssetTag"};
-    for (const std::string ifaceName : arrayIfaceName) {
-      provider.getComputerSystem(asyncResp, ifaceName);
-    }
+    provider.getComputerSystem(asyncResp,
+                               "xyz.openbmc_project.Inventory.FRU.Product");
 
     // Get Host state
     provider.getHostState(asyncResp);
@@ -995,13 +976,8 @@ class Systems : public Node {
 
     provider.getHostState(asyncResp);
     // TODO Need to refactor getComputerSystem method.
-    const std::array<const std::string, 3> arrayIfaceName
-    {"xyz.openbmc_project.Inventory.Decorator.Asset",
-     "xyz.openbmc_project.Inventory.Item",
-     "xyz.openbmc_project.Inventory.Decorator.AssetTag"};
-    for (const std::string ifaceName : arrayIfaceName) {
-      provider.getComputerSystem(asyncResp, ifaceName);
-    }
+    provider.getComputerSystem(asyncResp,
+                               "xyz.openbmc_project.Inventory.FRU.Product");
 
     if (dbusLedState.empty()) {
       CROW_LOG_ERROR << "Bad Request Led state: " << *reqLedState;
