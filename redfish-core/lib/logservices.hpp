@@ -48,6 +48,27 @@ struct LogEntryInterfaceData {
   const bool *resolved;
 };
 
+inline std::string translateSeverityDbusToRedfish(const std::string &s) {
+  if (s == "xyz.openbmc_project.Logging.Entry.Level.Alert") {
+    return "Critical";
+  } else if (s == "xyz.openbmc_project.Logging.Entry.Level.Critical") {
+    return "Critical";
+  } else if (s == "xyz.openbmc_project.Logging.Entry.Level.Debug") {
+    return "OK";
+  } else if (s == "xyz.openbmc_project.Logging.Entry.Level.Emergency") {
+    return "Critical";
+  } else if (s == "xyz.openbmc_project.Logging.Entry.Level.Error") {
+    return "Critical";
+  } else if (s == "xyz.openbmc_project.Logging.Entry.Level.Information") {
+    return "OK";
+  } else if (s == "xyz.openbmc_project.Logging.Entry.Level.Notice") {
+    return "OK";
+  } else if (s == "xyz.openbmc_project.Logging.Entry.Level.Warning") {
+    return "Warning";
+  }
+  return "";
+}
+
 /**
  * OnDemandLogServiceProvider
  * Log Service provider class that retrieves data directly from dbus,
@@ -120,8 +141,7 @@ class OnDemandLogServiceProvider {
       // Retrieve Severity property
       const std::string *severity =
                   extractProperty<std::string>(*entry_properties, "Severity");
-      entry_data.severity = translateSeverityBetweenDBusAndRedfish(severity,
-                                                                   true);
+      entry_data.severity = translateSeverityDbusToRedfish(*severity);
       // Retrieve Message property
       entry_data.message = extractProperty<std::string>(*entry_properties,
                                                         "Message");
@@ -227,44 +247,6 @@ class OnDemandLogServiceProvider {
     // Make call to Logging Service to find all log entry objects
     crow::connections::system_bus->async_method_call(resp_handler,
                                                      loggingService);
-  }
-
-  /**
-   * Translate Severity value between D-Bus and Redfish format
-   *
-   * @param[in] inSeverity Input Severity value which be translated
-   * @param[in] isFromDBus True for D-Bus->Redfish conversion, False for reserve
-   *
-   * @return Empty string in case of failure, translated value otherwise
-   */
-  std::string translateSeverityBetweenDBusAndRedfish(
-      const std::string *inSeverity, bool isFromDBus) {
-    // Invalid pointer
-    if (inSeverity == nullptr) {
-      return "";
-    }
-    std::array<std::pair<const char *, const char *>, 8> translationTable{
-        {{"xyz.openbmc_project.Logging.Entry.Level.Alert", "Alert"},
-         {"xyz.openbmc_project.Logging.Entry.Level.Critical", "Critical"},
-         {"xyz.openbmc_project.Logging.Entry.Level.Debug", "Debug"},
-         {"xyz.openbmc_project.Logging.Entry.Level.Emergency", "Emergency"},
-         {"xyz.openbmc_project.Logging.Entry.Level.Error", "Error"},
-         {"xyz.openbmc_project.Logging.Entry.Level.Information", "Information"},
-         {"xyz.openbmc_project.Logging.Entry.Level.Notice", "Notice"},
-         {"xyz.openbmc_project.Logging.Entry.Level.Warning", "Warning"}}};
-
-    for (uint8_t i = 0; i < translationTable.size(); i++) {
-      // Translating D-Bus to Redfish
-      if (isFromDBus && translationTable[i].first == *inSeverity) {
-        return translationTable[i].second;
-      }
-      // Translating Redfish to D-Bus
-      if (!isFromDBus && translationTable[i].second == *inSeverity) {
-        return translationTable[i].first;
-      }
-    }
-    // In case the value has not been found
-    return "";
   }
 };
 
