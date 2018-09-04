@@ -114,8 +114,8 @@ class OnDemandLogServiceProvider {
       const uint64_t *timestamp =
         extractProperty<uint64_t>(*entry_properties, "Timestamp");
 
-      // Retrieve Created property with format: yyyy-mm-ddThh:mm:ss
-      entry_data.timestamp = getDateTime(Milliseconds{*timestamp}, "%FT%R");
+      entry_data.timestamp = getDateTime(Milliseconds{*timestamp}, "%FT%T%z");
+      entry_data.timestamp.insert(entry_data.timestamp.end() - 2, ':');
 
       // Retrieve Severity property
       const std::string *severity =
@@ -325,7 +325,6 @@ class LogEntry : public Node {
           Node::json["Message"] = *entry_data.message;
         // TODO Retrieve Message Arguments object
 
-        // Retrieve Created object with format: yyyy-mm-ddThh:mm
         Node::json["Created"] = entry_data.timestamp;
 
         //TODO Need get MessageId, SensorType, SensorNumber,
