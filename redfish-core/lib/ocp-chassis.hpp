@@ -99,26 +99,26 @@ class OnDemandChassisProvider {
             return;
           }
           // Prepare all the schema required fields which retrieved from D-Bus.
-          for (const char *p :
-               std::array<const char *, 5>
-                   {"Name",
-                    "Manufacturer",
-                    "Model",
-                    "PartNumber",
-                    "SerialNumber"}) {
+          for (const char *p : std::array<const char *, 2>{"Part_Number",
+                                                           "Serial_Number"}) {
             PropertiesType::const_iterator it = properties.find(p);
             if (it != properties.end()) {
               const std::string *s = boost::get<std::string>(&it->second);
               if (s != nullptr) {
-                aResp->res.json_value[p] = *s;
+                if (p == "Part_Number") {
+                  aResp->res.json_value["PartNumber"] = *s;
+                } else if (p == "Serial_Number") {
+                  aResp->res.json_value["SerialNumber"] = *s;
+                } else {
+                  aResp->res.json_value[p] = *s;
+                }
               }
             }
           }
-        },
-        {"xyz.openbmc_project.Inventory.Manager",
-         "/xyz/openbmc_project/inventory/system/chassis",
-         "org.freedesktop.DBus.Properties", "GetAll"},
-        "xyz.openbmc_project.Inventory.Decorator.Asset");
+        }, {"xyz.openbmc_project.Inventory.FRU",
+            "/xyz/openbmc_project/inventory/fru0/chassis",
+            "org.freedesktop.DBus.Properties", "GetAll"},
+            "xyz.openbmc_project.Inventory.FRU.Chassis");
   }
 
   /**
@@ -191,6 +191,7 @@ class Chassis : public Node {
     Node::json["@odata.id"] = "/redfish/v1/Chassis/1";
     Node::json["@odata.context"] = "/redfish/v1/$metadata#Chassis.Chassis";
     Node::json["Name"] = "Ampere System Chassis"; // TODO hardcode in temporary.
+    // TODO Implements mapping from fru to redfish
     Node::json["ChassisType"] = "RackMount";
     Node::json["Id"] = "1";
     // TODO Currently not support "SKU" and "AssetTag" yet
