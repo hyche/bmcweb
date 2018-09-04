@@ -109,7 +109,7 @@ class OnDemandLogServiceProvider {
 
     if (entry_properties != nullptr) {
       // Retrieve event entry Id
-      entry_data.id = extractProperty<uint32_t>(*entry_properties, "Id");
+      entry_data.id = extractProperty<const uint32_t>(*entry_properties, "Id");
       // Convert timestamp (milliseconds from Epoch) to datetime
       const uint64_t *timestamp =
         extractProperty<uint64_t>(*entry_properties, "Timestamp");
@@ -314,8 +314,9 @@ class LogEntry : public Node {
                         const LogEntryInterfaceData &entry_data) {
       if (success) {
         if (entry_data.id != nullptr) {
-          Node::json["Id"] = *entry_data.id;
-          Node::json["Name"] = "Log Entry " + std::to_string(*entry_data.id);
+          const std::string id = std::to_string(*entry_data.id);
+          Node::json["Id"] = id;
+          Node::json["Name"] = "Log Entry " + id;
         }
 
         Node::json["Severity"] = entry_data.severity;
