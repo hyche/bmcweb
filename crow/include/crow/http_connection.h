@@ -537,7 +537,6 @@ class Connection {
             cancel_deadline_timer();
             parser_.done();
             is_reading = false;
-            check_destroy();
             // adaptor will close after write
           } else if (!need_to_call_after_handlers_) {
             start_deadline();
