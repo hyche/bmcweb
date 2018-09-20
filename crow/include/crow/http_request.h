@@ -1,51 +1,72 @@
 #pragma once
 
 #include <boost/asio.hpp>
+#include <boost/beast/http.hpp>
+#include <boost/beast/websocket.hpp>
 
-#include "crow/ci_map.h"
 #include "crow/common.h"
 #include "crow/query_string.h"
 
-namespace crow {
-template <typename T>
-inline const std::string& get_header_value(const T& headers,
-                                           const std::string& key) {
-  if (headers.count(key)) {
-    return headers.find(key)->second;
-  }
-  static std::string empty;
-  return empty;
-}
+namespace crow
+{
 
-struct request {
-  HTTPMethod method{HTTPMethod::Get};
-  std::string raw_url;
-  std::string url;
-  query_string url_params;
-  ci_map headers;
-  std::string body;
-  bool is_secure{false};
+struct Request
+{
+    boost::string_view url{};
+    QueryString urlParams{};
+    bool isSecure{false};
 
-  void* middleware_context{};
-  boost::asio::io_service* io_service{};
+    const std::string& body;
 
-  request() {}
+    void* middlewareContext{};
+    boost::asio::io_service* ioService{};
 
-  request(HTTPMethod method, std::string raw_url, std::string url,
-          query_string url_params, ci_map headers, std::string body)
-      : method(method),
-        raw_url(std::move(raw_url)),
-        url(std::move(url)),
-        url_params(std::move(url_params)),
-        headers(std::move(headers)),
-        body(std::move(body)) {}
+    Request(boost::beast::http::request<boost::beast::http::string_body>& req) :
+        req(req), body(req.body())
+    {
+    }
 
-  void add_header(std::string key, std::string value) {
-    headers.emplace(std::move(key), std::move(value));
-  }
+    const boost::beast::http::verb method() const
+    {
+        return req.method();
+    }
 
-  const std::string& get_header_value(const std::string& key) const {
-    return crow::get_header_value(headers, key);
-  }
+    const boost::string_view getHeaderValue(boost::string_view key) const
+    {
+        return req[key];
+    }
+
+    const boost::string_view getHeaderValue(boost::beast::http::field key) const
+    {
+        return req[key];
+    }
+
+    const boost::string_view methodString() const
+    {
+        return req.method_string();
+    }
+
+    const boost::string_view target() const
+    {
+        return req.target();
+    }
+
+    unsigned version()
+    {
+        return req.version();
+    }
+
+    bool isUpgrade()
+    {
+        return boost::beast::websocket::is_upgrade(req);
+    }
+
+    bool keepAlive()
+    {
+        return req.keep_alive();
+    }
+
+    boost::beast::http::request<boost::beast::http::string_body>& req;
 };
-}  // namespace crow
+
+} // namespace crow

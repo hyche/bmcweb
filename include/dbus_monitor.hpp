@@ -1,82 +1,232 @@
 #pragma once
-#include <dbus/filter.hpp>
-#include <dbus/match.hpp>
-#include <dbus_singleton.hpp>
 #include <crow/app.h>
+#include <crow/websocket.h>
+
 #include <boost/container/flat_map.hpp>
+#include <boost/container/flat_set.hpp>
+#include <dbus_singleton.hpp>
+#include <sdbusplus/bus/match.hpp>
 
-namespace crow {
-namespace dbus_monitor {
+namespace nlohmann
+{
+template <typename... Args>
+struct adl_serializer<sdbusplus::message::variant<Args...>>
+{
+    static void to_json(json& j, const sdbusplus::message::variant<Args...>& v)
+    {
+        mapbox::util::apply_visitor([&](auto&& val) { j = val; }, v);
+    }
+};
+} // namespace nlohmann
 
-struct DbusWebsocketSession {
-  std::vector<std::unique_ptr<dbus::match>> matches;
-  std::vector<dbus::filter> filters;
+namespace crow
+{
+namespace dbus_monitor
+{
+
+struct DbusWebsocketSession
+{
+    std::vector<std::unique_ptr<sdbusplus::bus::match::match>> matches;
+    boost::container::flat_set<std::string> interfaces;
 };
 
-static boost::container::flat_map<crow::websocket::connection*,
+static boost::container::flat_map<crow::websocket::Connection*,
                                   DbusWebsocketSession>
     sessions;
 
-void on_property_update(dbus::filter& filter, boost::system::error_code ec,
-                        dbus::message s) {
-  if (!ec) {
-    std::string object_name;
-    std::vector<std::pair<std::string, dbus::dbus_variant>> values;
-    s.unpack(object_name, values);
-    nlohmann::json j;
-    for (auto& value : values) {
-      boost::apply_visitor([&](auto val) { j[s.get_path()] = val; },
-                           value.second);
+inline int onPropertyUpdate(sd_bus_message* m, void* userdata,
+                            sd_bus_error* ret_error)
+{
+    if (ret_error == nullptr || sd_bus_error_is_set(ret_error))
+    {
+        BMCWEB_LOG_ERROR << "Got sdbus error on match";
+        return 0;
     }
-    auto data_to_send = j.dump();
+    crow::websocket::Connection* connection =
+        static_cast<crow::websocket::Connection*>(userdata);
+    auto thisSession = sessions.find(connection);
+    if (thisSession == sessions.end())
+    {
+        BMCWEB_LOG_ERROR << "Couldn't find dbus connection " << connection;
+        return 0;
+    }
+    sdbusplus::message::message message(m);
+    using VariantType = sdbusplus::message::variant<std::string, bool, int64_t,
+                                                    uint64_t, double>;
+    nlohmann::json j{{"event", message.get_member()},
+                     {"path", message.get_path()}};
+    if (strcmp(message.get_member(), "PropertiesChanged") == 0)
+    {
+        std::string interface_name;
+        boost::container::flat_map<std::string, VariantType> values;
+        message.read(interface_name, values);
+        j["properties"] = values;
+        j["interface"] = std::move(interface_name);
+    }
+    else if (strcmp(message.get_member(), "InterfacesAdded") == 0)
+    {
+        std::string object_name;
+        boost::container::flat_map<
+            std::string, boost::container::flat_map<std::string, VariantType>>
+            values;
+        message.read(object_name, values);
+        for (const std::pair<
+                 std::string,
+                 boost::container::flat_map<std::string, VariantType>>& paths :
+             values)
+        {
+            auto it = thisSession->second.interfaces.find(paths.first);
+            if (it != thisSession->second.interfaces.end())
+            {
+                j["interfaces"][paths.first] = paths.second;
+            }
+        }
+    }
+    else
+    {
+        BMCWEB_LOG_CRITICAL << "message " << message.get_member()
+                            << " was unexpected";
+        return 0;
+    }
 
-    for (auto& session : sessions) {
-      session.first->send_text(data_to_send);
-    }
-  }
-  filter.async_dispatch([&](boost::system::error_code ec, dbus::message s) {
-    on_property_update(filter, ec, s);
-  });
+    connection->sendText(j.dump());
+    return 0;
 };
 
-template <typename... Middlewares>
-void request_routes(Crow<Middlewares...>& app) {
-  CROW_ROUTE(app, "/dbus_monitor")
-      .websocket()
-      .onopen([&](crow::websocket::connection& conn) {
-        std::string path_namespace(conn.req.url_params.get("path_namespace"));
-        if (path_namespace.empty()) {
-          conn.send_text(
-              nlohmann::json({"error", "Did not specify path_namespace"}));
-          conn.close("error");
-        }
-        sessions[&conn] = DbusWebsocketSession();
-        std::string match_string(
-            "type='signal',"
-            "interface='org.freedesktop.DBus.Properties',"
-            "path_namespace='" +
-            path_namespace + "'");
-        sessions[&conn].matches.push_back(std::make_unique<dbus::match>(
-            crow::connections::system_bus, std::move(match_string)));
+template <typename... Middlewares> void requestRoutes(Crow<Middlewares...>& app)
+{
+    BMCWEB_ROUTE(app, "/subscribe")
+        .websocket()
+        .onopen([&](crow::websocket::Connection& conn) {
+            BMCWEB_LOG_DEBUG << "Connection " << &conn << " opened";
+            sessions[&conn] = DbusWebsocketSession();
+        })
+        .onclose([&](crow::websocket::Connection& conn,
+                     const std::string& reason) { sessions.erase(&conn); })
+        .onmessage([&](crow::websocket::Connection& conn,
+                       const std::string& data, bool is_binary) {
+            DbusWebsocketSession& thisSession = sessions[&conn];
+            BMCWEB_LOG_DEBUG << "Connection " << &conn << " recevied " << data;
+            nlohmann::json j = nlohmann::json::parse(data, nullptr, false);
+            if (j.is_discarded())
+            {
+                BMCWEB_LOG_ERROR << "Unable to parse json data for monitor";
+                conn.close("Unable to parse json request");
+                return;
+            }
+            nlohmann::json::iterator interfaces = j.find("interfaces");
+            if (interfaces != j.end())
+            {
+                thisSession.interfaces.reserve(interfaces->size());
+                for (auto& interface : *interfaces)
+                {
+                    const std::string* str =
+                        interface.get_ptr<const std::string*>();
+                    if (str != nullptr)
+                    {
+                        thisSession.interfaces.insert(*str);
+                    }
+                }
+            }
 
-        sessions[&conn].filters.emplace_back(
-            crow::connections::system_bus, [path_namespace](dbus::message m) {
-              return m.get_member() == "PropertiesChanged" &&
-                     boost::starts_with(m.get_path(), path_namespace);
-            });
-        auto& this_filter = sessions[&conn].filters.back();
-        this_filter.async_dispatch(
-            [&](boost::system::error_code ec, dbus::message s) {
-              on_property_update(this_filter, ec, s);
-            });
+            nlohmann::json::iterator paths = j.find("paths");
+            if (paths != j.end())
+            {
+                int interfaceCount = thisSession.interfaces.size();
+                if (interfaceCount == 0)
+                {
+                    interfaceCount = 1;
+                }
+                // Reserve our matches upfront.  For each path there is 1 for
+                // interfacesAdded, and InterfaceCount number for
+                // PropertiesChanged
+                thisSession.matches.reserve(thisSession.matches.size() +
+                                            paths->size() *
+                                                (1 + interfaceCount));
+            }
+            std::string object_manager_match_string;
+            std::string properties_match_string;
+            std::string object_manager_interfaces_match_string;
+            // These regexes derived on the rules here:
+            // https://dbus.freedesktop.org/doc/dbus-specification.html#message-protocol-names
+            std::regex validPath("^/([A-Za-z0-9_]+/?)*$");
+            std::regex validInterface(
+                "^[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)+$");
 
-      })
-      .onclose([&](crow::websocket::connection& conn,
-                   const std::string& reason) { sessions.erase(&conn); })
-      .onmessage([&](crow::websocket::connection& conn, const std::string& data,
-                     bool is_binary) {
-        CROW_LOG_ERROR << "Got unexpected message from client on sensorws";
-      });
+            for (const auto& thisPath : *paths)
+            {
+                const std::string* thisPathString =
+                    thisPath.get_ptr<const std::string*>();
+                if (thisPathString == nullptr)
+                {
+                    BMCWEB_LOG_ERROR << "subscribe path isn't a string?";
+                    conn.close();
+                    return;
+                }
+                if (!std::regex_match(*thisPathString, validPath))
+                {
+                    BMCWEB_LOG_ERROR << "Invalid path name " << *thisPathString;
+                    conn.close();
+                    return;
+                }
+                properties_match_string =
+                    ("type='signal',"
+                     "interface='org.freedesktop.DBus.Properties',"
+                     "path_namespace='" +
+                     *thisPathString +
+                     "',"
+                     "member='PropertiesChanged'");
+                // If interfaces weren't specified, add a single match for all
+                // interfaces
+                if (thisSession.interfaces.size() == 0)
+                {
+                    BMCWEB_LOG_DEBUG << "Creating match "
+                                     << properties_match_string;
+
+                    thisSession.matches.emplace_back(
+                        std::make_unique<sdbusplus::bus::match::match>(
+                            *crow::connections::systemBus,
+                            properties_match_string, onPropertyUpdate, &conn));
+                }
+                else
+                {
+                    // If interfaces were specified, add a match for each
+                    // interface
+                    for (const std::string& interface : thisSession.interfaces)
+                    {
+                        if (!std::regex_match(interface, validInterface))
+                        {
+                            BMCWEB_LOG_ERROR << "Invalid interface name "
+                                             << interface;
+                            conn.close();
+                            return;
+                        }
+                        std::string ifaceMatchString = properties_match_string +
+                                                       ",arg0='" + interface +
+                                                       "'";
+                        BMCWEB_LOG_DEBUG << "Creating match "
+                                         << ifaceMatchString;
+                        thisSession.matches.emplace_back(
+                            std::make_unique<sdbusplus::bus::match::match>(
+                                *crow::connections::systemBus, ifaceMatchString,
+                                onPropertyUpdate, &conn));
+                    }
+                }
+                object_manager_match_string =
+                    ("type='signal',"
+                     "interface='org.freedesktop.DBus.ObjectManager',"
+                     "path_namespace='" +
+                     *thisPathString +
+                     "',"
+                     "member='InterfacesAdded'");
+                BMCWEB_LOG_DEBUG << "Creating match "
+                                 << object_manager_match_string;
+                thisSession.matches.emplace_back(
+                    std::make_unique<sdbusplus::bus::match::match>(
+                        *crow::connections::systemBus,
+                        object_manager_match_string, onPropertyUpdate, &conn));
+            }
+        });
 }
-}  // namespace redfish
-}  // namespace crow
+} // namespace dbus_monitor
+} // namespace crow

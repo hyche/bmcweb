@@ -1,316 +1,448 @@
 #pragma once
 
-#include <pam_authenticate.hpp>
-#include <persistent_data_middleware.hpp>
-#include <webassets.hpp>
-#include <random>
 #include <crow/app.h>
-#include <crow/http_codes.h>
+#include <crow/common.h>
 #include <crow/http_request.h>
 #include <crow/http_response.h>
-#include <boost/bimap.hpp>
+
 #include <boost/container/flat_set.hpp>
+#include <pam_authenticate.hpp>
+#include <persistent_data_middleware.hpp>
+#include <random>
+#include <webassets.hpp>
 
-namespace crow {
+namespace crow
+{
 
-namespace TokenAuthorization {
+namespace token_authorization
+{
 
-class Middleware {
- public:
-  struct context {
-    const crow::PersistentData::UserSession* session;
-  };
+class Middleware
+{
+  public:
+    struct Context
+    {
+        std::shared_ptr<crow::persistent_data::UserSession> session;
+    };
 
-  void before_handle(crow::request& req, response& res, context& ctx) {
-    if (is_on_whitelist(req)) {
-      return;
+    void beforeHandle(crow::Request& req, Response& res, Context& ctx)
+    {
+        if (isOnWhitelist(req))
+        {
+            return;
+        }
+
+        ctx.session = performXtokenAuth(req);
+        if (ctx.session == nullptr)
+        {
+            ctx.session = performCookieAuth(req);
+        }
+        if (ctx.session == nullptr)
+        {
+            boost::string_view authHeader = req.getHeaderValue("Authorization");
+            if (!authHeader.empty())
+            {
+                // Reject any kind of auth other than basic or token
+                if (boost::starts_with(authHeader, "Token "))
+                {
+                    ctx.session = performTokenAuth(authHeader);
+                }
+                else if (boost::starts_with(authHeader, "Basic "))
+                {
+                    ctx.session = performBasicAuth(authHeader);
+                }
+            }
+        }
+
+        if (ctx.session == nullptr)
+        {
+            BMCWEB_LOG_WARNING << "[AuthMiddleware] authorization failed";
+
+            // If it's a browser connecting, don't send the HTTP authenticate
+            // header, to avoid possible CSRF attacks with basic auth
+            if (http_helpers::requestPrefersHtml(req))
+            {
+                res.result(boost::beast::http::status::temporary_redirect);
+                res.addHeader("Location", "/#/login");
+            }
+            else
+            {
+                res.result(boost::beast::http::status::unauthorized);
+                // only send the WWW-authenticate header if this isn't a xhr
+                // from the browser.  most scripts,
+                if (req.getHeaderValue("User-Agent").empty())
+                {
+                    res.addHeader("WWW-Authenticate", "Basic");
+                }
+            }
+
+            res.end();
+            return;
+        }
+
+        // TODO get user privileges here and propagate it via MW Context
+        // else let the request continue unharmed
     }
 
-    ctx.session = perform_xtoken_auth(req);
-
-    if (ctx.session == nullptr) {
-      ctx.session = perform_cookie_auth(req);
+    template <typename AllContext>
+    void afterHandle(Request& req, Response& res, Context& ctx,
+                     AllContext& allctx)
+    {
+        // TODO(ed) THis should really be handled by the persistent data
+        // middleware, but because it is upstream, it doesn't have access to the
+        // session information.  Should the data middleware persist the current
+        // user session?
+        if (ctx.session != nullptr &&
+            ctx.session->persistence ==
+                crow::persistent_data::PersistenceType::SINGLE_REQUEST)
+        {
+            persistent_data::SessionStore::getInstance().removeSession(
+                ctx.session);
+        }
     }
 
-    const std::string& auth_header = req.get_header_value("Authorization");
-    // Reject any kind of auth other than basic or token
-    if (ctx.session == nullptr && boost::starts_with(auth_header, "Token ")) {
-      ctx.session = perform_token_auth(auth_header);
+  private:
+    const std::shared_ptr<crow::persistent_data::UserSession>
+        performBasicAuth(boost::string_view auth_header) const
+    {
+        BMCWEB_LOG_DEBUG << "[AuthMiddleware] Basic authentication";
+
+        std::string authData;
+        boost::string_view param = auth_header.substr(strlen("Basic "));
+        if (!crow::utility::base64Decode(param, authData))
+        {
+            return nullptr;
+        }
+        std::size_t separator = authData.find(':');
+        if (separator == std::string::npos)
+        {
+            return nullptr;
+        }
+
+        std::string user = authData.substr(0, separator);
+        separator += 1;
+        if (separator > authData.size())
+        {
+            return nullptr;
+        }
+        std::string pass = authData.substr(separator);
+
+        BMCWEB_LOG_DEBUG << "[AuthMiddleware] Authenticating user: " << user;
+
+        if (!pamAuthenticateUser(user, pass))
+        {
+            return nullptr;
+        }
+
+        // TODO(ed) generateUserSession is a little expensive for basic
+        // auth, as it generates some random identifiers that will never be
+        // used.  This should have a "fast" path for when user tokens aren't
+        // needed.
+        // This whole flow needs to be revisited anyway, as we can't be
+        // calling directly into pam for every request
+        return persistent_data::SessionStore::getInstance().generateUserSession(
+            user, crow::persistent_data::PersistenceType::SINGLE_REQUEST);
     }
 
-    if (ctx.session == nullptr && boost::starts_with(auth_header, "Basic ")) {
-      ctx.session = perform_basic_auth(auth_header);
+    const std::shared_ptr<crow::persistent_data::UserSession>
+        performTokenAuth(boost::string_view auth_header) const
+    {
+        BMCWEB_LOG_DEBUG << "[AuthMiddleware] Token authentication";
+
+        boost::string_view token = auth_header.substr(strlen("Token "));
+        auto session =
+            persistent_data::SessionStore::getInstance().loginSessionByToken(
+                token);
+        return session;
     }
 
-    if (ctx.session == nullptr) {
-      CROW_LOG_WARNING << "[AuthMiddleware] authorization failed";
-      res.code = static_cast<int>(HttpRespCode::UNAUTHORIZED);
-      res.add_header("WWW-Authenticate", "Basic");
-      res.end();
-      return;
+    const std::shared_ptr<crow::persistent_data::UserSession>
+        performXtokenAuth(const crow::Request& req) const
+    {
+        BMCWEB_LOG_DEBUG << "[AuthMiddleware] X-Auth-Token authentication";
+
+        boost::string_view token = req.getHeaderValue("X-Auth-Token");
+        if (token.empty())
+        {
+            return nullptr;
+        }
+        auto session =
+            persistent_data::SessionStore::getInstance().loginSessionByToken(
+                token);
+        return session;
     }
 
-    // TODO get user privileges here and propagate it via MW context
-    // else let the request continue unharmed
-  }
+    const std::shared_ptr<crow::persistent_data::UserSession>
+        performCookieAuth(const crow::Request& req) const
+    {
+        BMCWEB_LOG_DEBUG << "[AuthMiddleware] Cookie authentication";
 
-  template <typename AllContext>
-  void after_handle(request& req, response& res, context& ctx,
-                    AllContext& allctx) {
-    // TODO(ed) THis should really be handled by the persistent data middleware,
-    // but because it is upstream, it doesn't have access to the session
-    // information.  Should the data middleware persist the current user
-    // session?
-    if (ctx.session != nullptr &&
-        ctx.session->persistence ==
-            crow::PersistentData::PersistenceType::SINGLE_REQUEST) {
-      PersistentData::session_store->remove_session(ctx.session);
-    }
-  }
+        boost::string_view cookieValue = req.getHeaderValue("Cookie");
+        if (cookieValue.empty())
+        {
+            return nullptr;
+        }
 
- private:
-  const crow::PersistentData::UserSession* perform_basic_auth(
-      const std::string& auth_header) const {
-    CROW_LOG_DEBUG << "[AuthMiddleware] Basic authentication";
+        auto startIndex = cookieValue.find("SESSION=");
+        if (startIndex == std::string::npos)
+        {
+            return nullptr;
+        }
+        startIndex += sizeof("SESSION=") - 1;
+        auto endIndex = cookieValue.find(";", startIndex);
+        if (endIndex == std::string::npos)
+        {
+            endIndex = cookieValue.size();
+        }
+        boost::string_view authKey =
+            cookieValue.substr(startIndex, endIndex - startIndex);
 
-    std::string auth_data;
-    std::string param = auth_header.substr(strlen("Basic "));
-    if (!crow::utility::base64_decode(param, auth_data)) {
-      return nullptr;
-    }
-    std::size_t separator = auth_data.find(':');
-    if (separator == std::string::npos) {
-      return nullptr;
-    }
-
-    std::string user = auth_data.substr(0, separator);
-    separator += 1;
-    if (separator > auth_data.size()) {
-      return nullptr;
-    }
-    std::string pass = auth_data.substr(separator);
-
-    CROW_LOG_DEBUG << "[AuthMiddleware] Authenticating user: " << user;
-
-    if (!pam_authenticate_user(user, pass)) {
-      return nullptr;
-    }
-
-    // TODO(ed) generate_user_session is a little expensive for basic
-    // auth, as it generates some random identifiers that will never be
-    // used.  This should have a "fast" path for when user tokens aren't
-    // needed.
-    // This whole flow needs to be revisited anyway, as we can't be
-    // calling directly into pam for every request
-    return &(PersistentData::session_store->generate_user_session(
-        user, crow::PersistentData::PersistenceType::SINGLE_REQUEST));
-  }
-
-  const crow::PersistentData::UserSession* perform_token_auth(
-      const std::string& auth_header) const {
-    CROW_LOG_DEBUG << "[AuthMiddleware] Token authentication";
-
-    std::string token = auth_header.substr(strlen("Token "));
-    auto session = PersistentData::session_store->login_session_by_token(token);
-    return session;
-  }
-
-  const crow::PersistentData::UserSession* perform_xtoken_auth(
-      const crow::request& req) const {
-    CROW_LOG_DEBUG << "[AuthMiddleware] X-Auth-Token authentication";
-
-    const std::string& token = req.get_header_value("X-Auth-Token");
-    if (token.empty()) {
-      return nullptr;
-    }
-    auto session = PersistentData::session_store->login_session_by_token(token);
-    return session;
-  }
-
-  const crow::PersistentData::UserSession* perform_cookie_auth(
-      const crow::request& req) const {
-    CROW_LOG_DEBUG << "[AuthMiddleware] Cookie authentication";
-
-    auto& cookie_value = req.get_header_value("Cookie");
-    if (cookie_value.empty()) {
-      return nullptr;
+        const std::shared_ptr<crow::persistent_data::UserSession> session =
+            persistent_data::SessionStore::getInstance().loginSessionByToken(
+                authKey);
+        if (session == nullptr)
+        {
+            return nullptr;
+        }
+#ifndef BMCWEB_INSECURE_DISABLE_CSRF_PREVENTION
+        // RFC7231 defines methods that need csrf protection
+        if (req.method() != "GET"_method)
+        {
+            boost::string_view csrf = req.getHeaderValue("X-XSRF-TOKEN");
+            // Make sure both tokens are filled
+            if (csrf.empty() || session->csrfToken.empty())
+            {
+                return nullptr;
+            }
+            // Reject if csrf token not available
+            if (csrf != session->csrfToken)
+            {
+                return nullptr;
+            }
+        }
+#endif
+        return session;
     }
 
-    auto start_index = cookie_value.find("SESSION=");
-    if (start_index == std::string::npos) {
-      return nullptr;
-    }
-    start_index += sizeof("SESSION=") - 1;
-    auto end_index = cookie_value.find(";", start_index);
-    if (end_index == std::string::npos) {
-      end_index = cookie_value.size();
-    }
-    std::string auth_key =
-        cookie_value.substr(start_index, end_index - start_index);
+    // checks if request can be forwarded without authentication
+    bool isOnWhitelist(const crow::Request& req) const
+    {
+        // it's allowed to GET root node without authentica tion
+        if ("GET"_method == req.method())
+        {
+            if (req.url == "/redfish/v1" || req.url == "/redfish/v1/" ||
+                req.url == "/redfish" || req.url == "/redfish/" ||
+                req.url == "/redfish/v1/odata" ||
+                req.url == "/redfish/v1/odata/")
+            {
+                return true;
+            }
+            else if (crow::webassets::routes.find(std::string(req.url)) !=
+                     crow::webassets::routes.end())
+            {
+                return true;
+            }
+        }
 
-    const crow::PersistentData::UserSession* session =
-        PersistentData::session_store->login_session_by_token(auth_key);
-    if (session == nullptr) {
-      return nullptr;
-    }
+        // it's allowed to POST on session collection & login without
+        // authentication
+        if ("POST"_method == req.method())
+        {
+            if ((req.url == "/redfish/v1/SessionService/Sessions") ||
+                (req.url == "/redfish/v1/SessionService/Sessions/") ||
+                (req.url == "/login"))
+            {
+                return true;
+            }
+        }
 
-    // RFC7231 defines methods that need csrf protection
-    if (req.method != "GET"_method) {
-      const std::string& csrf = req.get_header_value("X-XSRF-TOKEN");
-      // Make sure both tokens are filled
-      if (csrf.empty() || session->csrf_token.empty()) {
-        return nullptr;
-      }
-      // Reject if csrf token not available
-      if (csrf != session->csrf_token) {
-        return nullptr;
-      }
+        return false;
     }
-    return session;
-  }
-
-  // checks if request can be forwarded without authentication
-  bool is_on_whitelist(const crow::request& req) const {
-    // it's allowed to GET root node without authentication
-    if ("GET"_method == req.method) {
-      if (req.url == "/redfish/v1") {
-        return true;
-      } else if (crow::webassets::routes.find(req.url) !=
-                 crow::webassets::routes.end()) {
-        return true;
-      }
-    }
-
-    // it's allowed to POST on session collection & login without authentication
-    if ("POST"_method == req.method) {
-      if ((req.url == "/redfish/v1/SessionService/Sessions") ||
-          (req.url == "/login") || (req.url == "/logout")) {
-        return true;
-      }
-    }
-
-    return false;
-  }
 };
 
 // TODO(ed) see if there is a better way to allow middlewares to request
 // routes.
 // Possibly an init function on first construction?
-template <typename... Middlewares>
-void request_routes(Crow<Middlewares...>& app) {
-  static_assert(
-      black_magic::contains<PersistentData::Middleware, Middlewares...>::value,
-      "TokenAuthorization middleware must be enabled in app to use "
-      "auth routes");
-  CROW_ROUTE(app, "/login")
-      .methods(
-          "POST"_method)([&](const crow::request& req, crow::response& res) {
-        std::string content_type;
-        auto content_type_it = req.headers.find("content-type");
-        if (content_type_it != req.headers.end()) {
-          content_type = content_type_it->second;
-          boost::algorithm::to_lower(content_type);
-        }
-        const std::string* username;
-        const std::string* password;
-        bool looks_like_ibm = false;
+template <typename... Middlewares> void requestRoutes(Crow<Middlewares...>& app)
+{
+    static_assert(
+        black_magic::Contains<persistent_data::Middleware,
+                              Middlewares...>::value,
+        "token_authorization middleware must be enabled in app to use "
+        "auth routes");
+    BMCWEB_ROUTE(app, "/login")
+        .methods(
+            "POST"_method)([&](const crow::Request& req, crow::Response& res) {
+            boost::string_view contentType = req.getHeaderValue("content-type");
+            boost::string_view username;
+            boost::string_view password;
 
-        // This object needs to be declared at this scope so the strings within
-        // it are not destroyed before we can use them
-        nlohmann::json login_credentials;
-        // Check if auth was provided by a payload
-        if (content_type == "application/json") {
-          login_credentials = nlohmann::json::parse(req.body, nullptr, false);
-          if (login_credentials.is_discarded()) {
-            res.code = 400;
+            bool looksLikeIbm = false;
+
+            // This object needs to be declared at this scope so the strings
+            // within it are not destroyed before we can use them
+            nlohmann::json loginCredentials;
+            // Check if auth was provided by a payload
+            if (contentType == "application/json")
+            {
+                loginCredentials =
+                    nlohmann::json::parse(req.body, nullptr, false);
+                if (loginCredentials.is_discarded())
+                {
+                    res.result(boost::beast::http::status::bad_request);
+                    res.end();
+                    return;
+                }
+
+                // check for username/password in the root object
+                // THis method is how intel APIs authenticate
+                nlohmann::json::iterator userIt =
+                    loginCredentials.find("username");
+                nlohmann::json::iterator passIt =
+                    loginCredentials.find("password");
+                if (userIt != loginCredentials.end() &&
+                    passIt != loginCredentials.end())
+                {
+                    const std::string* userStr =
+                        userIt->get_ptr<const std::string*>();
+                    const std::string* passStr =
+                        passIt->get_ptr<const std::string*>();
+                    if (userStr != nullptr && passStr != nullptr)
+                    {
+                        username = *userStr;
+                        password = *passStr;
+                    }
+                }
+                else
+                {
+                    // Openbmc appears to push a data object that contains the
+                    // same keys (username and password), attempt to use that
+                    auto dataIt = loginCredentials.find("data");
+                    if (dataIt != loginCredentials.end())
+                    {
+                        // Some apis produce an array of value ["username",
+                        // "password"]
+                        if (dataIt->is_array())
+                        {
+                            if (dataIt->size() == 2)
+                            {
+                                nlohmann::json::iterator userIt2 =
+                                    dataIt->begin();
+                                nlohmann::json::iterator passIt2 =
+                                    dataIt->begin() + 1;
+                                looksLikeIbm = true;
+                                if (userIt2 != dataIt->end() &&
+                                    passIt2 != dataIt->end())
+                                {
+                                    const std::string* userStr =
+                                        userIt2->get_ptr<const std::string*>();
+                                    const std::string* passStr =
+                                        passIt2->get_ptr<const std::string*>();
+                                    if (userStr != nullptr &&
+                                        passStr != nullptr)
+                                    {
+                                        username = *userStr;
+                                        password = *passStr;
+                                    }
+                                }
+                            }
+                        }
+                        else if (dataIt->is_object())
+                        {
+                            nlohmann::json::iterator userIt2 =
+                                dataIt->find("username");
+                            nlohmann::json::iterator passIt2 =
+                                dataIt->find("password");
+                            if (userIt2 != dataIt->end() &&
+                                passIt2 != dataIt->end())
+                            {
+                                const std::string* userStr =
+                                    userIt2->get_ptr<const std::string*>();
+                                const std::string* passStr =
+                                    passIt2->get_ptr<const std::string*>();
+                                if (userStr != nullptr && passStr != nullptr)
+                                {
+                                    username = *userStr;
+                                    password = *passStr;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            else
+            {
+                // check if auth was provided as a headers
+                username = req.getHeaderValue("username");
+                password = req.getHeaderValue("password");
+            }
+
+            if (!username.empty() && !password.empty())
+            {
+                if (!pamAuthenticateUser(username, password))
+                {
+                    res.result(boost::beast::http::status::unauthorized);
+                }
+                else
+                {
+                    auto session = persistent_data::SessionStore::getInstance()
+                                       .generateUserSession(username);
+
+                    if (looksLikeIbm)
+                    {
+                        // IBM requires a very specific login structure, and
+                        // doesn't actually look at the status code.
+                        // TODO(ed).... Fix that upstream
+                        res.jsonValue = {
+                            {"data",
+                             "User '" + std::string(username) + "' logged in"},
+                            {"message", "200 OK"},
+                            {"status", "ok"}};
+
+                        // Hack alert.  Boost beast by default doesn't let you
+                        // declare multiple headers of the same name, and in
+                        // most cases this is fine.  Unfortunately here we need
+                        // to set the Session cookie, which requires the
+                        // httpOnly attribute, as well as the XSRF cookie, which
+                        // requires it to not have an httpOnly attribute. To get
+                        // the behavior we want, we simply inject the second
+                        // "set-cookie" string into the value header, and get
+                        // the result we want, even though we are technicaly
+                        // declaring two headers here.
+                        res.addHeader("Set-Cookie",
+                                      "XSRF-TOKEN=" + session->csrfToken +
+                                          "; Secure\r\nSet-Cookie: SESSION=" +
+                                          session->sessionToken +
+                                          "; Secure; HttpOnly");
+                    }
+                    else
+                    {
+                        // if content type is json, assume json token
+                        res.jsonValue = {{"token", session->sessionToken}};
+                    }
+                }
+            }
+            else
+            {
+                res.result(boost::beast::http::status::bad_request);
+            }
             res.end();
-            return;
-          }
-          // check for username/password in the root object
-          // THis method is how intel APIs authenticate
-          auto user_it = login_credentials.find("username");
-          auto pass_it = login_credentials.find("password");
-          if (user_it != login_credentials.end() &&
-              pass_it != login_credentials.end()) {
-            username = user_it->get_ptr<const std::string*>();
-            password = pass_it->get_ptr<const std::string*>();
-          } else {
-            // Openbmc appears to push a data object that contains the same
-            // keys (username and password), attempt to use that
-            auto data_it = login_credentials.find("data");
-            if (data_it != login_credentials.end()) {
-              // Some apis produce an array of value ["username",
-              // "password"]
-              if (data_it->is_array()) {
-                if (data_it->size() == 2) {
-                  username = (*data_it)[0].get_ptr<const std::string*>();
-                  password = (*data_it)[1].get_ptr<const std::string*>();
-                  looks_like_ibm = true;
-                }
-              } else if (data_it->is_object()) {
-                auto user_it = data_it->find("username");
-                auto pass_it = data_it->find("password");
-                if (user_it != data_it->end() && pass_it != data_it->end()) {
-                  username = user_it->get_ptr<const std::string*>();
-                  password = pass_it->get_ptr<const std::string*>();
-                }
-              }
-            }
-          }
-        } else {
-          // check if auth was provided as a query string
-          auto user_it = req.headers.find("username");
-          auto pass_it = req.headers.find("password");
-          if (user_it != req.headers.end() && pass_it != req.headers.end()) {
-            username = &user_it->second;
-            password = &pass_it->second;
-          }
-        }
+        });
 
-        if (username != nullptr && !username->empty() && password != nullptr &&
-            !password->empty()) {
-          if (!pam_authenticate_user(*username, *password)) {
-            res.code = res.code = static_cast<int>(HttpRespCode::UNAUTHORIZED);
-          } else {
+    BMCWEB_ROUTE(app, "/logout")
+        .methods(
+            "POST"_method)([&](const crow::Request& req, crow::Response& res) {
             auto& session =
-                PersistentData::session_store->generate_user_session(*username);
-
-            if (looks_like_ibm) {
-              // IBM requires a very specific login structure, and doesn't
-              // actually look at the status code.  TODO(ed).... Fix that
-              // upstream
-              res.json_value = {{"data", "User '" + *username + "' logged in"},
-                                {"message", "200 OK"},
-                                {"status", "ok"}};
-              res.add_header("Set-Cookie", "XSRF-TOKEN=" + session.csrf_token);
-              res.add_header("Set-Cookie", "SESSION=" + session.session_token +
-                                               "; Secure; HttpOnly");
-            } else {
-              // if content type is json, assume json token
-              res.json_value = {{"token", session.session_token}};
-            }
-          }
-
-        } else {
-          res.code = static_cast<int>(HttpRespCode::BAD_REQUEST);
-        }
-        res.end();
-      });
-
-  CROW_ROUTE(app, "/logout")
-      .methods("POST"_method)(
-          [&](const crow::request& req, crow::response& res) {
-            auto& session =
-                app.template get_context<TokenAuthorization::Middleware>(req)
+                app.template getContext<token_authorization::Middleware>(req)
                     .session;
-            if (session != nullptr) {
-              PersistentData::session_store->remove_session(session);
+            if (session != nullptr)
+            {
+                persistent_data::SessionStore::getInstance().removeSession(
+                    session);
             }
-            res.code = static_cast<int>(HttpRespCode::OK);
             res.end();
             return;
-
-          });
+        });
 }
-}  // namespace TokenAuthorization
-}  // namespace crow
+} // namespace token_authorization
+} // namespace crow

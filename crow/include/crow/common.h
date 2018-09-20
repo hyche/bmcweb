@@ -1,152 +1,151 @@
 #pragma once
 
+#include <boost/beast/http/verb.hpp>
 #include <iostream>
 #include <stdexcept>
 #include <string>
 #include <vector>
+
 #include "crow/utility.h"
 
-namespace crow {
-enum class HTTPMethod {
+namespace crow
+{
+enum class HTTPMethod
+{
 #ifndef DELETE
-  DELETE = 0,
-  GET,
-  HEAD,
-  POST,
-  PUT,
-  CONNECT,
-  OPTIONS,
-  TRACE,
-  PATCH = 24,  // see http_parser_merged.h line 118 for why it is 24
+    DELETE = 0,
+    GET,
+    HEAD,
+    POST,
+    PUT,
+    CONNECT,
+    OPTIONS,
+    TRACE,
+    PATCH = 24, // see http_parser_merged.h line 118 for why it is 24
 #endif
 
-  Delete = 0,
-  Get,
-  Head,
-  Post,
-  Put,
-  Connect,
-  Options,
-  Trace,
-  Patch = 24,
+    Delete = 0,
+    Get,
+    Head,
+    Post,
+    Put,
+    Connect,
+    Options,
+    Trace,
+    Patch = 24,
 };
 
-inline std::string method_name(HTTPMethod method) {
-  switch (method) {
-    case HTTPMethod::Delete:
-      return "DELETE";
-    case HTTPMethod::Get:
-      return "GET";
-    case HTTPMethod::Head:
-      return "HEAD";
-    case HTTPMethod::Post:
-      return "POST";
-    case HTTPMethod::Put:
-      return "PUT";
-    case HTTPMethod::Connect:
-      return "CONNECT";
-    case HTTPMethod::Options:
-      return "OPTIONS";
-    case HTTPMethod::Trace:
-      return "TRACE";
-    case HTTPMethod::Patch:
-      return "PATCH";
-  }
-  return "invalid";
+inline std::string methodName(boost::beast::http::verb method)
+{
+    switch (method)
+    {
+        case boost::beast::http::verb::delete_:
+            return "DELETE";
+        case boost::beast::http::verb::get:
+            return "GET";
+        case boost::beast::http::verb::head:
+            return "HEAD";
+        case boost::beast::http::verb::post:
+            return "POST";
+        case boost::beast::http::verb::put:
+            return "PUT";
+        case boost::beast::http::verb::connect:
+            return "CONNECT";
+        case boost::beast::http::verb::options:
+            return "OPTIONS";
+        case boost::beast::http::verb::trace:
+            return "TRACE";
+        case boost::beast::http::verb::patch:
+            return "PATCH";
+    }
+    return "invalid";
 }
 
-enum class ParamType {
-  INT,
-  UINT,
-  DOUBLE,
-  STRING,
-  PATH,
+enum class ParamType
+{
+    INT,
+    UINT,
+    DOUBLE,
+    STRING,
+    PATH,
 
-  MAX
+    MAX
 };
 
-struct routing_params {
-  std::vector<int64_t> int_params;
-  std::vector<uint64_t> uint_params;
-  std::vector<double> double_params;
-  std::vector<std::string> string_params;
+struct RoutingParams
+{
+    std::vector<int64_t> intParams;
+    std::vector<uint64_t> uintParams;
+    std::vector<double> doubleParams;
+    std::vector<std::string> stringParams;
 
-  void debug_print() const {
-    std::cerr << "routing_params" << std::endl;
-    for (auto i : int_params) {
-      std::cerr << i << ", ";
+    void debugPrint() const
+    {
+        std::cerr << "RoutingParams" << std::endl;
+        for (auto i : intParams)
+        {
+            std::cerr << i << ", ";
+        }
+        std::cerr << std::endl;
+        for (auto i : uintParams)
+        {
+            std::cerr << i << ", ";
+        }
+        std::cerr << std::endl;
+        for (auto i : doubleParams)
+        {
+            std::cerr << i << ", ";
+        }
+        std::cerr << std::endl;
+        for (auto& i : stringParams)
+        {
+            std::cerr << i << ", ";
+        }
+        std::cerr << std::endl;
     }
-    std::cerr << std::endl;
-    for (auto i : uint_params) {
-      std::cerr << i << ", ";
-    }
-    std::cerr << std::endl;
-    for (auto i : double_params) {
-      std::cerr << i << ", ";
-    }
-    std::cerr << std::endl;
-    for (auto& i : string_params) {
-      std::cerr << i << ", ";
-    }
-    std::cerr << std::endl;
-  }
 
-  template <typename T>
-  T get(unsigned) const;
+    template <typename T> T get(unsigned) const;
 };
 
-template <>
-inline int64_t routing_params::get<int64_t>(unsigned index) const {
-  return int_params[index];
+template <> inline int64_t RoutingParams::get<int64_t>(unsigned index) const
+{
+    return intParams[index];
+}
+
+template <> inline uint64_t RoutingParams::get<uint64_t>(unsigned index) const
+{
+    return uintParams[index];
+}
+
+template <> inline double RoutingParams::get<double>(unsigned index) const
+{
+    return doubleParams[index];
 }
 
 template <>
-inline uint64_t routing_params::get<uint64_t>(unsigned index) const {
-  return uint_params[index];
+inline std::string RoutingParams::get<std::string>(unsigned index) const
+{
+    return stringParams[index];
 }
 
-template <>
-inline double routing_params::get<double>(unsigned index) const {
-  return double_params[index];
-}
+} // namespace crow
 
-template <>
-inline std::string routing_params::get<std::string>(unsigned index) const {
-  return string_params[index];
-}
-}  // namespace crow
-
-constexpr crow::HTTPMethod operator"" _method(const char* str, size_t /*len*/) {
-  return crow::black_magic::is_equ_p(str, "GET", 3)
-             ? crow::HTTPMethod::Get
-             : crow::black_magic::is_equ_p(str, "DELETE", 6)
-                   ? crow::HTTPMethod::Delete
-                   : crow::black_magic::is_equ_p(str, "HEAD", 4)
-                         ? crow::HTTPMethod::Head
-                         : crow::black_magic::is_equ_p(str, "POST", 4)
-                               ? crow::HTTPMethod::Post
-                               : crow::black_magic::is_equ_p(str, "PUT", 3)
-                                     ? crow::HTTPMethod::Put
-                                     : crow::black_magic::is_equ_p(str,
-                                                                   "OPTIONS", 7)
-                                           ? crow::HTTPMethod::Options
-                                           : crow::black_magic::is_equ_p(
-                                                 str, "CONNECT", 7)
-                                                 ? crow::HTTPMethod::Connect
-                                                 : crow::black_magic::is_equ_p(
-                                                       str, "TRACE", 5)
-                                                       ? crow::HTTPMethod::Trace
-                                                       : crow::black_magic::
-                                                                 is_equ_p(
-                                                                     str,
-                                                                     "PATCH", 5)
-                                                             ? crow::
-                                                                   HTTPMethod::
-                                                                       Patch
-                                                             : throw std::
-                                                                   runtime_error(
-                                                                       "invalid"
-                                                                       " http "
-                                                                       "metho"
-                                                                       "d");
+constexpr boost::beast::http::verb operator"" _method(const char* str,
+                                                      size_t /*len*/)
+{
+    using verb = boost::beast::http::verb;
+    // clang-format off
+  return
+    crow::black_magic::isEquP(str, "GET", 3) ? verb::get :
+    crow::black_magic::isEquP(str, "DELETE", 6) ? verb::delete_ :
+    crow::black_magic::isEquP(str, "HEAD", 4) ? verb::head :
+    crow::black_magic::isEquP(str, "POST", 4) ? verb::post :
+    crow::black_magic::isEquP(str, "PUT", 3) ? verb::put :
+    crow::black_magic::isEquP(str, "OPTIONS", 7) ? verb::options :
+    crow::black_magic::isEquP(str, "CONNECT", 7) ? verb::connect :
+    crow::black_magic::isEquP(str, "TRACE", 5) ? verb::trace :
+    crow::black_magic::isEquP(str, "PATCH", 5) ? verb::patch :
+    crow::black_magic::isEquP(str, "PURGE", 5) ? verb::purge :
+    throw std::runtime_error("invalid http method");
+    // clang-format on
 }

@@ -16,70 +16,81 @@
 #pragma once
 
 #include "../lib/account_service.hpp"
+#include "../lib/ethernet.hpp"
 #include "../lib/managers.hpp"
 #include "../lib/network_protocol.hpp"
+#ifdef OCP_CUSTOM_FLAG // TODO Add OCP custom flag for include target header
+    #include "../lib/ocp-chassis.hpp"
+    #include "../lib/power.hpp"
+#else
+    #include "../lib/chassis.hpp"
+#endif
 #include "../lib/redfish_sessions.hpp"
 #include "../lib/roles.hpp"
 #include "../lib/service_root.hpp"
-#include "../lib/ethernet.hpp"
+#include "../lib/systems.hpp"
 #include "../lib/thermal.hpp"
-#ifdef OCP_CUSTOM_FLAG // TODO Add OCP custom flag for include target header
-#include "../lib/ocp-chassis.hpp"
-#include "../lib/power.hpp"
-#else
-#include "../lib/chassis.hpp"
-#endif
 #include "../lib/systems.hpp"
 #include "../lib/logservices.hpp"
+#include "../lib/update_service.hpp"
 #include "webserver_common.hpp"
 
-namespace redfish {
+namespace redfish
+{
 /*
  * @brief Top level class installing and providing Redfish services
  */
-class RedfishService {
- public:
-  /*
-   * @brief Redfish service constructor
-   *
-   * Loads Redfish configuration and installs schema resources
-   *
-   * @param[in] app   Crow app on which Redfish will initialize
-   */
-  RedfishService(CrowApp& app) {
-    nodes.emplace_back(std::make_unique<AccountService>(app));
-    nodes.emplace_back(std::make_unique<SessionCollection>(app));
-    nodes.emplace_back(std::make_unique<Roles>(app));
-    nodes.emplace_back(std::make_unique<RoleCollection>(app));
-    nodes.emplace_back(std::make_unique<ServiceRoot>(app));
-    nodes.emplace_back(std::make_unique<NetworkProtocol>(app));
-    nodes.emplace_back(std::make_unique<SessionService>(app));
-    nodes.emplace_back(std::make_unique<EthernetCollection>(app));
-    nodes.emplace_back(std::make_unique<EthernetInterface>(app));
-    nodes.emplace_back(std::make_unique<Thermal>(app));
-    nodes.emplace_back(std::make_unique<ManagerCollection>(app));
-    nodes.emplace_back(std::make_unique<ChassisCollection>(app));
-#ifdef OCP_CUSTOM_FLAG // Add power node
-    nodes.emplace_back(std::make_unique<Power>(app));
+class RedfishService
+{
+  public:
+    /*
+     * @brief Redfish service constructor
+     *
+     * Loads Redfish configuration and installs schema resources
+     *
+     * @param[in] app   Crow app on which Redfish will initialize
+     */
+    RedfishService(CrowApp& app)
+    {
+        nodes.emplace_back(std::make_unique<AccountService>(app));
+        nodes.emplace_back(std::make_unique<SessionCollection>(app));
+        nodes.emplace_back(std::make_unique<Roles>(app));
+        nodes.emplace_back(std::make_unique<RoleCollection>(app));
+        nodes.emplace_back(std::make_unique<ServiceRoot>(app));
+        nodes.emplace_back(std::make_unique<NetworkProtocol>(app));
+        nodes.emplace_back(std::make_unique<SessionService>(app));
+        nodes.emplace_back(std::make_unique<EthernetCollection>(app));
+        nodes.emplace_back(std::make_unique<EthernetInterface>(app));
+        nodes.emplace_back(std::make_unique<Thermal>(app));
+        nodes.emplace_back(std::make_unique<ManagerCollection>(app));
+        nodes.emplace_back(std::make_unique<Manager>(app));
+        nodes.emplace_back(std::make_unique<ChassisCollection>(app));
+#ifdef OCP_CUSTOM_FLAG
+        nodes.emplace_back(std::make_unique<Power>(app));
 #endif //OCP_CUSTOM_FLAG
-#ifndef OCP_CUSTOM_FLAG // TODO Remove Chassis node
-                        // which unused in case definition of OCP custom flag
-    nodes.emplace_back(std::make_unique<Chassis>(app));
-#endif
-    nodes.emplace_back(std::make_unique<SystemsCollection>(app));
-    nodes.emplace_back(std::make_unique<Systems>(app));
-    nodes.emplace_back(std::make_unique<LogServiceCollection>(app));
-    nodes.emplace_back(std::make_unique<LogService>(app));
-    nodes.emplace_back(std::make_unique<LogEntryCollection>(app));
-    nodes.emplace_back(std::make_unique<LogEntry>(app));
+        nodes.emplace_back(std::make_unique<Chassis>(app));
+        nodes.emplace_back(std::make_unique<UpdateService>(app));
+        nodes.emplace_back(std::make_unique<SoftwareInventoryCollection>(app));
+        nodes.emplace_back(std::make_unique<SoftwareInventory>(app));
+        nodes.emplace_back(
+            std::make_unique<VlanNetworkInterfaceCollection>(app));
+        nodes.emplace_back(std::make_unique<SystemsCollection>(app));
+        nodes.emplace_back(std::make_unique<Systems>(app));
+        nodes.emplace_back(std::make_unique<SystemActionsReset>(app));
+        nodes.emplace_back(std::make_unique<LogServiceCollection>(app));
+        nodes.emplace_back(std::make_unique<LogService>(app));
+        nodes.emplace_back(std::make_unique<LogEntryCollection>(app));
+        nodes.emplace_back(std::make_unique<LogEntry>(app));
+        nodes.emplace_back(std::make_unique<LogServiceActionsClear>(app));
 
-    for (auto& node : nodes) {
-      node->getSubRoutes(nodes);
+        for (auto& node : nodes)
+        {
+            node->getSubRoutes(nodes);
+        }
     }
-  }
 
- private:
-  std::vector<std::unique_ptr<Node>> nodes;
+  private:
+    std::vector<std::unique_ptr<Node>> nodes;
 };
 
-}  // namespace redfish
+} // namespace redfish

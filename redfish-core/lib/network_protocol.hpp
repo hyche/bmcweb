@@ -16,93 +16,216 @@
 */
 #pragma once
 
+#include "error_messages.hpp"
 #include "node.hpp"
+
 #include <utils/ampere-utils.hpp>
 
-namespace redfish {
+namespace redfish
+{
 
-class NetworkProtocol : public Node {
- public:
-  NetworkProtocol(CrowApp& app)
-      : Node(app,
-             "/redfish/v1/Managers/bmc/NetworkProtocol") {
-    Node::json["@odata.type"] =
-        "#ManagerNetworkProtocol.v1_1_0.ManagerNetworkProtocol";
-    Node::json["@odata.id"] = "/redfish/v1/Managers/bmc/NetworkProtocol";
-    Node::json["@odata.context"] =
-        "/redfish/v1/$metadata#ManagerNetworkProtocol.ManagerNetworkProtocol";
-    Node::json["Id"] = "NetworkProtocol";
-    Node::json["Name"] = "Manager Network Protocol";
-    Node::json["Description"] = "Manager Network Service";
-    Node::json["Status"]["Health"] = "OK";
-    Node::json["Status"]["HealthRollup"] = "OK";
-    Node::json["Status"]["State"] = "Enabled";
-
-    entityPrivileges = {{crow::HTTPMethod::GET, {{"Login"}}},
-                        {crow::HTTPMethod::HEAD, {{"Login"}}},
-                        {crow::HTTPMethod::PATCH, {{"ConfigureManager"}}},
-                        {crow::HTTPMethod::PUT, {{"ConfigureManager"}}},
-                        {crow::HTTPMethod::DELETE, {{"ConfigureManager"}}},
-                        {crow::HTTPMethod::POST, {{"ConfigureManager"}}}};
-  }
-
- private:
-  void doGet(crow::response& res, const crow::request& req,
-             const std::vector<std::string>& params) override {
-    refreshProtocolsState();
-    std::string hostName = getHostName();
-    Node::json["HostName"] = hostName;
-    Node::json["FQDN"] = hostName + DOMAIN_NAME;
-    res.json_value = Node::json;
-    res.end();
-  }
-
-  std::string getHostName() const {
-    std::string hostName;
-
-    std::array<char, HOST_NAME_MAX> hostNameCStr;
-    if (gethostname(hostNameCStr.data(), hostNameCStr.size()) == 0) {
-      hostName = hostNameCStr.data();
-    }
-    return hostName;
-  }
-
-  void refreshProtocolsState() {
-    refreshListeningPorts();
-    for (auto& kv : portToProtocolMap) {
-      Node::json[kv.second]["Port"] = kv.first;
-      if (listeningPorts.find(kv.first) != listeningPorts.end()) {
-        Node::json[kv.second]["ProtocolEnabled"] = true;
-      } else {
-        Node::json[kv.second]["ProtocolEnabled"] = false;
-      }
-    }
-  }
-
-  void refreshListeningPorts() {
-    listeningPorts.clear();
-    std::array<char, 128> netstatLine;
-    FILE* p = popen("netstat -tuln | awk '{ print $4 }'", "r");
-    if (p != nullptr) {
-      while (fgets(netstatLine.data(), netstatLine.size(), p) != nullptr) {
-        auto s = std::string(netstatLine.data());
-
-        // get port num from strings such as: ".*:.*:.*:port"
-        s.erase(0, s.find_last_of(":") + strlen(":"));
-
-        auto port = atoi(s.c_str());
-        if (port != 0 &&
-            portToProtocolMap.find(port) != portToProtocolMap.end()) {
-          listeningPorts.insert(port);
-        }
-      }
-    }
-  }
-
-  std::map<int, std::string> portToProtocolMap{
-      {22, "SSH"}, {80, "HTTP"}, {443, "HTTPS"}, {623, "IPMI"}, {1900, "SSDP"}};
-
-  std::set<int> listeningPorts;
+enum NetworkProtocolUnitStructFields
+{
+    NET_PROTO_UNIT_NAME,
+    NET_PROTO_UNIT_DESC,
+    NET_PROTO_UNIT_LOAD_STATE,
+    NET_PROTO_UNIT_ACTIVE_STATE,
+    NET_PROTO_UNIT_SUB_STATE,
+    NET_PROTO_UNIT_DEVICE,
+    NET_PROTO_UNIT_OBJ_PATH,
+    NET_PROTO_UNIT_ALWAYS_0,
+    NET_PROTO_UNIT_ALWAYS_EMPTY,
+    NET_PROTO_UNIT_ALWAYS_ROOT_PATH
 };
 
-}  // namespace redfish
+enum NetworkProtocolListenResponseElements
+{
+    NET_PROTO_LISTEN_TYPE,
+    NET_PROTO_LISTEN_STREAM
+};
+
+/**
+ * @brief D-Bus Unit structure returned in array from ListUnits Method
+ */
+using UnitStruct =
+    std::tuple<std::string, std::string, std::string, std::string, std::string,
+               std::string, sdbusplus::message::object_path, uint32_t,
+               std::string, sdbusplus::message::object_path>;
+
+struct ServiceConfiguration
+{
+    const char* serviceName;
+    const char* socketPath;
+};
+
+const static boost::container::flat_map<const char*, ServiceConfiguration>
+    protocolToDBus{
+        {"SSH",
+         {"dropbear.service",
+          "/org/freedesktop/systemd1/unit/dropbear_2esocket"}},
+        {"HTTPS",
+         {"phosphor-gevent.service",
+          "/org/freedesktop/systemd1/unit/phosphor_2dgevent_2esocket"}},
+        {"IPMI",
+         {"phosphor-ipmi-net.service",
+          "/org/freedesktop/systemd1/unit/phosphor_2dipmi_2dnet_2esocket"}}};
+
+class NetworkProtocol : public Node
+{
+  public:
+    NetworkProtocol(CrowApp& app) :
+        Node(app, "/redfish/v1/Managers/bmc/NetworkProtocol")
+    {
+        Node::json["@odata.type"] =
+            "#ManagerNetworkProtocol.v1_1_0.ManagerNetworkProtocol";
+        Node::json["@odata.id"] = "/redfish/v1/Managers/bmc/NetworkProtocol";
+        Node::json["@odata.context"] =
+            "/redfish/v1/"
+            "$metadata#ManagerNetworkProtocol.ManagerNetworkProtocol";
+        Node::json["Id"] = "NetworkProtocol";
+        Node::json["Name"] = "Manager Network Protocol";
+        Node::json["Description"] = "Manager Network Service";
+        Node::json["Status"]["Health"] = "OK";
+        Node::json["Status"]["HealthRollup"] = "OK";
+        Node::json["Status"]["State"] = "Enabled";
+
+        for (auto& protocol : protocolToDBus)
+        {
+            Node::json[protocol.first]["ProtocolEnabled"] = false;
+        }
+
+        entityPrivileges = {
+            {boost::beast::http::verb::get, {{"Login"}}},
+            {boost::beast::http::verb::head, {{"Login"}}},
+            {boost::beast::http::verb::patch, {{"ConfigureManager"}}},
+            {boost::beast::http::verb::put, {{"ConfigureManager"}}},
+            {boost::beast::http::verb::delete_, {{"ConfigureManager"}}},
+            {boost::beast::http::verb::post, {{"ConfigureManager"}}}};
+    }
+
+  private:
+    void doGet(crow::Response& res, const crow::Request& req,
+               const std::vector<std::string>& params) override
+    {
+        std::shared_ptr<AsyncResp> asyncResp = std::make_shared<AsyncResp>(res);
+
+        getData(asyncResp);
+    }
+
+    std::string getHostName() const
+    {
+        std::string hostName;
+
+        std::array<char, HOST_NAME_MAX> hostNameCStr;
+        if (gethostname(hostNameCStr.data(), hostNameCStr.size()) == 0)
+        {
+            hostName = hostNameCStr.data();
+        }
+        return hostName;
+    }
+
+    void getData(const std::shared_ptr<AsyncResp>& asyncResp)
+    {
+        std::string hostName = getHostName();
+        Node::json["HostName"] = hostName;
+        Node::json["FQDN"] = hostName + DOMAIN_NAME;
+        asyncResp->res.jsonValue = Node::json;
+
+        crow::connections::systemBus->async_method_call(
+            [asyncResp](const boost::system::error_code ec,
+                        const std::vector<UnitStruct>& resp) {
+                if (ec)
+                {
+                    asyncResp->res.jsonValue = nlohmann::json::object();
+                    messages::addMessageToErrorJson(asyncResp->res.jsonValue,
+                                                    messages::internalError());
+                    asyncResp->res.result(
+                        boost::beast::http::status::internal_server_error);
+                    return;
+                }
+
+                for (auto& unit : resp)
+                {
+                    for (auto& kv : protocolToDBus)
+                    {
+                        if (kv.second.serviceName ==
+                            std::get<NET_PROTO_UNIT_NAME>(unit))
+                        {
+                            continue;
+                        }
+                        const char* service = kv.first;
+                        const char* socketPath = kv.second.socketPath;
+
+                        asyncResp->res.jsonValue[service]["ProtocolEnabled"] =
+                            std::get<NET_PROTO_UNIT_SUB_STATE>(unit) ==
+                            "running";
+
+                        crow::connections::systemBus->async_method_call(
+                            [asyncResp, service{std::string(service)},
+                             socketPath](
+                                const boost::system::error_code ec,
+                                const sdbusplus::message::variant<std::vector<
+                                    std::tuple<std::string, std::string>>>&
+                                    resp) {
+                                if (ec)
+                                {
+                                    messages::addMessageToJson(
+                                        asyncResp->res.jsonValue,
+                                        messages::internalError(),
+                                        "/" + service);
+                                    return;
+                                }
+                                const std::vector<std::tuple<
+                                    std::string, std::string>>* responsePtr =
+                                    mapbox::getPtr<const std::vector<
+                                        std::tuple<std::string, std::string>>>(
+                                        resp);
+                                if (responsePtr == nullptr ||
+                                    responsePtr->size() < 1)
+                                {
+                                    return;
+                                }
+
+                                const std::string& listenStream =
+                                    std::get<NET_PROTO_LISTEN_STREAM>(
+                                        (*responsePtr)[0]);
+                                std::size_t lastColonPos =
+                                    listenStream.rfind(":");
+                                if (lastColonPos == std::string::npos)
+                                {
+                                    // Not a port
+                                    return;
+                                }
+                                std::string portStr =
+                                    listenStream.substr(lastColonPos + 1);
+                                char* endPtr = nullptr;
+                                // Use strtol instead of stroi to avoid
+                                // exceptions
+                                long port =
+                                    std::strtol(portStr.c_str(), &endPtr, 10);
+
+                                if (*endPtr != '\0' || portStr.empty())
+                                {
+                                    // Invalid value
+                                    asyncResp->res.jsonValue[service]["Port"] =
+                                        nullptr;
+                                }
+                                else
+                                {
+                                    // Everything OK
+                                    asyncResp->res.jsonValue[service]["Port"] =
+                                        port;
+                                }
+                            },
+                            "org.freedesktop.systemd1", socketPath,
+                            "org.freedesktop.DBus.Properties", "Get",
+                            "org.freedesktop.systemd1.Socket", "Listen");
+                    }
+                }
+            },
+            "org.freedesktop.systemd1", "/org/freedesktop/systemd1",
+            "org.freedesktop.systemd1.Manager", "ListUnits");
+    }
+};
+
+} // namespace redfish

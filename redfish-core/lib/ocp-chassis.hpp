@@ -26,46 +26,25 @@
 #pragma once
 
 #include "node.hpp"
+
 #include <boost/container/flat_map.hpp>
 
-namespace redfish {
+namespace redfish
+{
 
 /**
  * D-Bus types primitives for several generic D-Bus interfaces
  * TODO consider move this to separate file into boost::dbus
  */
-using ManagedObjectsType = std::vector<
-    std::pair<dbus::object_path,
-              std::vector<std::pair<
-                  std::string,
-                  std::vector<std::pair<std::string, dbus::dbus_variant>>>>>>;
-
-using PropertiesType =
-    boost::container::flat_map<std::string, dbus::dbus_variant>;
-
-/**
-* ChassisAsyncResp
-* Gathers data needed for response processing after async calls are done
-*/
-class ChassisAsyncResp {
-public:
- ChassisAsyncResp(crow::response& response): res(response) {}
-
- ~ChassisAsyncResp() {
-   if (res.code != static_cast<int>(HttpRespCode::OK)) {
-     // Reset the json object to clear out any data that made it in before the
-     // error happened
-     // TODO handle error condition with proper code
-     res.json_value = nlohmann::json::object();
-   }
-   res.end();
- }
- void setErrorStatus() {
-   res.code = static_cast<int>(HttpRespCode::INTERNAL_ERROR);
- }
-
- crow::response& res;
-};
+using VariantType = sdbusplus::message::variant<
+                                          std::string, bool, uint8_t, int16_t,
+                                          uint16_t, int32_t, uint32_t, int64_t,
+                                          uint64_t, double>;
+using ManagedObjectsType = std::vector<std::pair<
+    sdbusplus::message::object_path,
+    std::vector<std::pair<
+        std::string, std::vector<std::pair<std::string, VariantType>>>>>>;
+using PropertiesType = boost::container::flat_map<std::string, VariantType>;
 
 /**
  * OnDemandChassisProvider
@@ -79,225 +58,249 @@ public:
  * This perhaps shall be different file, which has to be chosen on compile time
  * depending on OEM needs
  */
-class OnDemandChassisProvider {
- public:
-  /**
-  * Function that retrieves all properties for given Chassis Object.
-  * @param[in] aResp     Shared pointer for completing asynchronous calls.
-  * @return None.
-  */
-  void get_chassis_data(const std::shared_ptr<ChassisAsyncResp> aResp) {
-    crow::connections::system_bus->async_method_call(
-        [aResp{std::move(aResp)}](
-            const boost::system::error_code error_code,
-            const PropertiesType &properties) {
-          // Callback requires flat_map<string, string> so prepare one.
-          boost::container::flat_map<std::string, std::string> output;
-          if (error_code) {
-            CROW_LOG_ERROR << "D-Bus response error: " << error_code;
-            aResp->setErrorStatus();
-            return;
-          }
-          // Prepare all the schema required fields which retrieved from D-Bus.
-          for (const char *p : std::array<const char *, 2>{"Part_Number",
-                                                           "Serial_Number"}) {
-            PropertiesType::const_iterator it = properties.find(p);
-            if (it != properties.end()) {
-              const std::string *s = boost::get<std::string>(&it->second);
-              if (s != nullptr) {
-                if (p == "Part_Number") {
-                  aResp->res.json_value["PartNumber"] = *s;
-                } else if (p == "Serial_Number") {
-                  aResp->res.json_value["SerialNumber"] = *s;
-                } else {
-                  aResp->res.json_value[p] = *s;
+class OnDemandChassisProvider
+{
+  public:
+    /**
+     * Function that retrieves all properties for given Chassis Object.
+     * @param[in] aResp     Shared pointer for completing asynchronous calls.
+     * @return None.
+     */
+    void get_chassis_data(const std::shared_ptr<AsyncResp> aResp)
+    {
+        crow::connections::systemBus->async_method_call(
+            [aResp{std::move(aResp)}](const boost::system::error_code ec,
+                                      const PropertiesType &properties) {
+                // Callback requires flat_map<string, string> so prepare one.
+                boost::container::flat_map<std::string, std::string> output;
+                if (ec)
+                {
+                    aResp->res.result(
+                        boost::beast::http::status::internal_server_error);
+                    return;
                 }
-              }
-            }
-          }
-        }, {"xyz.openbmc_project.Inventory.FRU",
+                // Prepare all the schema required fields which retrieved from
+                // D-Bus.
+                for (const char *p : std::array<const char *, 2>{
+                         "Part_Number", "Serial_Number"})
+                {
+                    PropertiesType::const_iterator it = properties.find(p);
+                    if (it != properties.end())
+                    {
+                        const std::string *s =
+                            mapbox::getPtr<const std::string>(it->second);
+                        if (s != nullptr)
+                        {
+                            if (p == "Part_Number")
+                            {
+                                aResp->res.jsonValue["PartNumber"] = *s;
+                            }
+                            else if (p == "Serial_Number")
+                            {
+                                aResp->res.jsonValue["SerialNumber"] = *s;
+                            }
+                            else
+                            {
+                                aResp->res.jsonValue[p] = *s;
+                            }
+                        }
+                    }
+                }
+            },
+            "xyz.openbmc_project.Inventory.FRU",
             "/xyz/openbmc_project/inventory/fru0/chassis",
-            "org.freedesktop.DBus.Properties", "GetAll"},
+            "org.freedesktop.DBus.Properties", "GetAll",
             "xyz.openbmc_project.Inventory.FRU.Chassis");
-  }
+    }
 
-  /**
-   * @brief Retrieves chassis state properties over D-Bus
-   *
-   * @param[in] aResp     Shared pointer for completing asynchronous calls.
-   * @return None.
-   */
-  void get_chassis_state(const std::shared_ptr<ChassisAsyncResp> aResp) {
-    CROW_LOG_DEBUG << "Get Chassis information.";
-    crow::connections::system_bus->async_method_call(
-        [aResp{std::move(aResp)}](const boost::system::error_code ec,
-                                  const PropertiesType &properties) {
-          if (ec) {
-            CROW_LOG_ERROR << "D-Bus response error " << ec;
-            return;
-          }
-          CROW_LOG_DEBUG << "Got " << properties.size()
-                                  << " chassis properties.";
-          PropertiesType::const_iterator it =
-                                        properties.find("CurrentPowerState");
-          if (it != properties.end()) {
-            const std::string *s = boost::get<std::string>(&it->second);
-            if (s != nullptr) {
-              const std::size_t pos = s->rfind('.');
-              if (pos != std::string::npos) {
-                // Verify Chassis state
-                if (s->substr(pos + 1) == "On") {
-                  aResp->res.json_value["PowerState"] = "On";
-                  aResp->res.json_value["Status"]["State"] = "Enabled";
-                } else {
-                  aResp->res.json_value["PowerState"] = "Off";
-                  aResp->res.json_value["Status"]["State"] = "Disabled";
+    /**
+     * @brief Retrieves chassis state properties over D-Bus
+     *
+     * @param[in] aResp     Shared pointer for completing asynchronous calls.
+     * @return None.
+     */
+    void get_chassis_state(const std::shared_ptr<AsyncResp> aResp)
+    {
+        BMCWEB_LOG_DEBUG << "Get Chassis information.";
+        crow::connections::systemBus->async_method_call(
+            [aResp{std::move(aResp)}](const boost::system::error_code ec,
+                                      const PropertiesType &properties) {
+                if (ec)
+                {
+                    aResp->res.result(
+                        boost::beast::http::status::internal_server_error);
+                    BMCWEB_LOG_ERROR << "D-Bus response error " << ec;
+                    return;
                 }
-              }
-            }
-          }
-          it = properties.find("HealthState");
-          if (it != properties.end()) {
-            const std::string *s = boost::get<std::string>(&it->second);
-            if (s != nullptr) {
-              // Retrieve the Health value from:
-              // xyz.openbmc_project.State.Chassis.Health.<state>
-              const std::size_t pos = s->rfind('.');
-              if (pos != std::string::npos) {
-                aResp->res.json_value["Status"]["Health"] = s->substr(pos + 1);
-              }
-            }
-          }
-        },
-        {"xyz.openbmc_project.State.Chassis",
-        "/xyz/openbmc_project/state/chassis0",
-        "org.freedesktop.DBus.Properties", "GetAll"},
-        "xyz.openbmc_project.State.Chassis");
-  }
+                BMCWEB_LOG_DEBUG << "Got " << properties.size()
+                                 << " chassis properties.";
+                PropertiesType::const_iterator it =
+                    properties.find("CurrentPowerState");
+                if (it != properties.end())
+                {
+                    const std::string *s =
+                        mapbox::getPtr<const std::string>(it->second);
+                    if (s != nullptr)
+                    {
+                        const std::size_t pos = s->rfind('.');
+                        if (pos != std::string::npos)
+                        {
+                            // Verify Chassis state
+                            if (s->substr(pos + 1) == "On")
+                            {
+                                aResp->res.jsonValue["PowerState"] = "On";
+                                aResp->res.jsonValue["Status"]["State"] =
+                                    "Enabled";
+                            }
+                            else
+                            {
+                                aResp->res.jsonValue["PowerState"] = "Off";
+                                aResp->res.jsonValue["Status"]["State"] =
+                                    "Disabled";
+                            }
+                        }
+                    }
+                }
+                it = properties.find("HealthState");
+                if (it != properties.end())
+                {
+                    const std::string *s =
+                        mapbox::getPtr<const std::string>(it->second);
+                    if (s != nullptr)
+                    {
+                        // Retrieve the Health value from:
+                        // xyz.openbmc_project.State.Chassis.Health.<state>
+                        const std::size_t pos = s->rfind('.');
+                        if (pos != std::string::npos)
+                        {
+                            aResp->res.jsonValue["Status"]["Health"] =
+                                s->substr(pos + 1);
+                        }
+                    }
+                }
+            },
+            "xyz.openbmc_project.State.Chassis",
+            "/xyz/openbmc_project/state/chassis0",
+            "org.freedesktop.DBus.Properties", "GetAll",
+            "xyz.openbmc_project.State.Chassis");
+    }
 };
 
 /**
  * Chassis override class for delivering Chassis Schema
  */
-class Chassis : public Node {
- public:
-  /*
-   * Default Constructor
-   */
-  template <typename CrowApp>
-  Chassis(CrowApp &app)
-      : Node(app, "/redfish/v1/Chassis/1/") {
-    Node::json["@odata.type"] = "#Chassis.v1_4_0.Chassis";
-    Node::json["@odata.id"] = "/redfish/v1/Chassis/1";
-    Node::json["@odata.context"] = "/redfish/v1/$metadata#Chassis.Chassis";
-    Node::json["Name"] = "Ampere System Chassis"; // TODO hardcode in temporary.
-    // TODO Implements mapping from fru to redfish
-    Node::json["ChassisType"] = "RackMount";
-    Node::json["Id"] = "1";
-    // TODO Currently not support "SKU" and "AssetTag" yet
-    Node::json["SKU"] = "";
-    Node::json["AssetTag"] = "";
-    // TODO Initial State for chassis
-    Node::json["PowerState"] = "Off";
-    Node::json["Status"]["State"] = "Disabled";
-    Node::json["Status"]["Health"] = "OK"; // Resource can response so assume
-                                           // default Health state is Ok.
+class Chassis : public Node
+{
+  public:
+    /*
+     * Default Constructor
+     */
+    template <typename CrowApp>
+    Chassis(CrowApp &app) : Node(app, "/redfish/v1/Chassis/1/")
+    {
+        Node::json["@odata.type"] = "#Chassis.v1_4_0.Chassis";
+        Node::json["@odata.id"] = "/redfish/v1/Chassis/1";
+        Node::json["@odata.context"] = "/redfish/v1/$metadata#Chassis.Chassis";
+        Node::json["Name"] =
+            "Ampere System Chassis"; // TODO hardcode in temporary.
+        // TODO Implements mapping from fru to redfish
+        Node::json["ChassisType"] = "RackMount";
+        Node::json["Id"] = "1";
+        // TODO Currently not support "SKU" and "AssetTag" yet
+        Node::json["SKU"] = "";
+        Node::json["AssetTag"] = "";
+        // TODO Initial State for chassis
+        Node::json["PowerState"] = "Off";
+        Node::json["Status"]["State"] = "Disabled";
+        Node::json["Status"]["Health"] =
+            "OK"; // Resource can response so assume
+                  // default Health state is Ok.
 
+        entityPrivileges = {
+            {boost::beast::http::verb::get, {{"Login"}}},
+            {boost::beast::http::verb::head, {{"Login"}}},
+            {boost::beast::http::verb::patch, {{"ConfigureComponents"}}},
+            {boost::beast::http::verb::put, {{"ConfigureComponents"}}},
+            {boost::beast::http::verb::delete_, {{"ConfigureComponents"}}},
+            {boost::beast::http::verb::post, {{"ConfigureComponents"}}}};
+    }
 
-    entityPrivileges = {{crow::HTTPMethod::GET, {{"Login"}}},
-                        {crow::HTTPMethod::HEAD, {{"Login"}}},
-                        {crow::HTTPMethod::PATCH, {{"ConfigureComponents"}}},
-                        {crow::HTTPMethod::PUT, {{"ConfigureComponents"}}},
-                        {crow::HTTPMethod::DELETE, {{"ConfigureComponents"}}},
-                        {crow::HTTPMethod::POST, {{"ConfigureComponents"}}}};
-  }
+  private:
+    /**
+     * Functions triggers appropriate requests on D-Bus
+     */
+    void doGet(crow::Response &res, const crow::Request &req,
+               const std::vector<std::string> &params) override
+    {
+        auto asyncResp = std::make_shared<AsyncResp>(res);
 
- private:
-  /**
-   * Functions triggers appropriate requests on D-Bus
-   */
-  void doGet(crow::response &res, const crow::request &req,
-             const std::vector<std::string> &params) override {
-    auto asyncResp = std::make_shared<ChassisAsyncResp>(res);
+        Node::json["Thermal"] = {
+            {"@odata.id", "/redfish/v1/Chassis/1/Thermal"}};
+        Node::json["Power"] = {{"@odata.id", "/redfish/v1/Chassis/1/Power"}};
+        Node::json["Links"]["ComputerSystems"] = {
+            {{"@odata.id", "/redfish/v1/Systems/1"}}};
+        Node::json["Links"]["ManagedBy"] = {
+            {{"@odata.id", "/redfish/v1/Managers/bmc"}}};
 
-    // Create JSON copy based on Node::json, this is to avoid possible
-    // race condition
-    nlohmann::json json_response(Node::json);
-    // Thermal object
-    json_response["Thermal"] = {
-                        {"@odata.id", "/redfish/v1/Chassis/1/Thermal"}};
-    // Power object
-    json_response["Power"] = {
-                        {"@odata.id", "/redfish/v1/Chassis/1/Power"}};
-    // An array of references to computer systems contained in this chassis.
-    json_response["Links"]["ComputerSystems"] =
-                              {{{"@odata.id", "/redfish/v1/Systems/1"}}};
-    // An array of references to the Managers responsible
-    // for managing this chassis.
-    json_response["Links"]["ManagedBy"] =
-                            {{{"@odata.id", "/redfish/v1/Managers/bmc"}}};
+        asyncResp->res.jsonValue = Node::json;
 
-    asyncResp->res.json_value = json_response;
+        // Get chassis information:
+        //        Manufacturer,
+        //        Name,
+        //        SerialNumber,
+        //        PartNumber,
+        //        Model
+        chassis_provider.get_chassis_data(asyncResp);
 
-    // Get chassis information:
-    //        Manufacturer,
-    //        Name,
-    //        SerialNumber,
-    //        PartNumber,
-    //        Model
-    chassis_provider.get_chassis_data(asyncResp);
+        // Get chassis state:
+        //        PowerState,
+        //        Status:
+        //          State,
+        //          Health
+        chassis_provider.get_chassis_state(asyncResp);
+    }
 
-    // Get chassis state:
-    //        PowerState,
-    //        Status:
-    //          State,
-    //          Health
-    chassis_provider.get_chassis_state(asyncResp);
-  }
-
-  // Chassis Provider object
-  // TODO consider move it to singleton
-  OnDemandChassisProvider chassis_provider;
+    // Chassis Provider object
+    // TODO consider move it to singleton
+    OnDemandChassisProvider chassis_provider;
 };
 
 /**
  * ChassisCollection derived class for delivering Chassis Collection Schema
  */
-class ChassisCollection : public Node {
- public:
-  template <typename CrowApp>
-  ChassisCollection(CrowApp &app)
-    : Node(app, "/redfish/v1/Chassis/"), memberChassis(app) {
-    Node::json["@odata.type"] = "#ChassisCollection.ChassisCollection";
-    Node::json["@odata.id"] = "/redfish/v1/Chassis";
-    Node::json["@odata.context"] =
-        "/redfish/v1/$metadata#ChassisCollection.ChassisCollection";
-    Node::json["Name"] = "Chassis Collection";
-    // System only has 1 chassis, there is only 1 appropriate link
-    // Then attach members, count size and return.
-    // TODO hardcode the member id with "1"
-    Node::json["Members"] = {{{"@odata.id", "/redfish/v1/Chassis/1"}}};
-    Node::json["Members@odata.count"] = 1;
+class ChassisCollection : public Node
+{
+  public:
+    template <typename CrowApp>
+    ChassisCollection(CrowApp &app) : Node(app, "/redfish/v1/Chassis/")
+    {
+        Node::json["@odata.type"] = "#ChassisCollection.ChassisCollection";
+        // Node::json["@odata.id"] = "/redfish/v1/Chassis";
+        Node::json["@odata.context"] =
+             "/redfish/v1/$metadata#ChassisCollection.ChassisCollection";
+        Node::json["Name"] = "Chassis Collection";
+        // System only has 1 chassis, there is only 1 appropriate link
+        // Then attach members, count size and return.
+        // TODO hardcode the member id with "1"
+        Node::json["Members"] = {{{"@odata.id", "/redfish/v1/Chassis/1"}}};
+        Node::json["Members@odata.count"] = 1;
 
-    entityPrivileges = {{crow::HTTPMethod::GET, {{"Login"}}},
-                        {crow::HTTPMethod::HEAD, {{"Login"}}},
-                        {crow::HTTPMethod::PATCH, {{"ConfigureComponents"}}},
-                        {crow::HTTPMethod::PUT, {{"ConfigureComponents"}}},
-                        {crow::HTTPMethod::DELETE, {{"ConfigureComponents"}}},
-                        {crow::HTTPMethod::POST, {{"ConfigureComponents"}}}};
-  }
+        entityPrivileges = {
+            {boost::beast::http::verb::get, {{"Login"}}},
+            {boost::beast::http::verb::head, {{"Login"}}},
+            {boost::beast::http::verb::patch, {{"ConfigureComponents"}}},
+            {boost::beast::http::verb::put, {{"ConfigureComponents"}}},
+            {boost::beast::http::verb::delete_, {{"ConfigureComponents"}}},
+            {boost::beast::http::verb::post, {{"ConfigureComponents"}}}};
+    }
 
- private:
-  /**
-   * Functions triggers appropriate requests on D-Bus
-   */
-  void doGet(crow::response &res, const crow::request &req,
-             const std::vector<std::string> &params) override {
-    res.json_value = Node::json;
-    res.end();
-  }
-
-  // The Chassis object as member of ChassisCollection.
-  Chassis memberChassis;
+  private:
+    void doGet(crow::Response &res, const crow::Request &req,
+               const std::vector<std::string> &params) override
+    {
+        res.jsonValue = Node::json;
+        res.jsonValue["@odata.id"] = "/redfish/v1/Chassis";
+        res.end();
+    }
 };
-}  // namespace redfish
+} // namespace redfish

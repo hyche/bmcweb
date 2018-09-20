@@ -1,112 +1,173 @@
 #pragma once
+#include "nlohmann/json.hpp"
+
+#include <boost/beast/http.hpp>
 #include <string>
 
-#include "nlohmann/json.hpp"
-#include "crow/ci_map.h"
 #include "crow/http_request.h"
 #include "crow/logging.h"
 
-namespace crow {
+namespace crow
+{
+
 template <typename Adaptor, typename Handler, typename... Middlewares>
 class Connection;
 
-struct response {
-  template <typename Adaptor, typename Handler, typename... Middlewares>
-  friend class crow::Connection;
+struct Response
+{
+    template <typename Adaptor, typename Handler, typename... Middlewares>
+    friend class crow::Connection;
+    using response_type =
+        boost::beast::http::response<boost::beast::http::string_body>;
 
-  int code{200};
-  std::string body;
-  nlohmann::json json_value;
+    boost::optional<response_type> stringResponse;
 
-  std::shared_ptr<std::string> body_ptr;
+    nlohmann::json jsonValue;
 
-  std::string headers;
-
-  void add_header(const std::string& key, const std::string& value) {
-    const static std::string seperator = ": ";
-    const static std::string crlf = "\r\n";
-    headers.append(key);
-    headers.append(seperator);
-    headers.append(value);
-    headers.append(crlf);
-  }
-
-  response() = default;
-  explicit response(int code) : code(code) {}
-  explicit response(std::string body) : body(std::move(body)) {}
-  explicit response(const char* body) : body(body) {}
-  explicit response(nlohmann::json&& json_value)
-      : json_value(std::move(json_value)) {
-    json_mode();
-  }
-  response(int code, const char* body) : code(code), body(body) {}
-  response(int code, std::string body) : code(code), body(std::move(body)) {}
-  // TODO(ed) make pretty printing JSON configurable
-  explicit response(const nlohmann::json& json_value)
-      : body(json_value.dump(4)) {
-    json_mode();
-  }
-  response(int code, const nlohmann::json& json_value)
-      : code(code), body(json_value.dump(4)) {
-    json_mode();
-  }
-
-  response(response&& r) {
-    CROW_LOG_DEBUG << "Moving response containers";
-    *this = std::move(r);
-  }
-
-  ~response() { CROW_LOG_DEBUG << "Destroying response"; }
-
-  response& operator=(const response& r) = delete;
-
-  response& operator=(response&& r) noexcept {
-    CROW_LOG_DEBUG << "Moving response containers";
-    body = std::move(r.body);
-    json_value = std::move(r.json_value);
-    code = r.code;
-    headers = std::move(r.headers);
-    completed_ = r.completed_;
-    return *this;
-  }
-
-  bool is_completed() const noexcept { return completed_; }
-
-  void clear() {
-    CROW_LOG_DEBUG << "Clearing response containers";
-    body.clear();
-    json_value.clear();
-    code = 200;
-    headers.clear();
-    completed_ = false;
-    body_ptr.reset();
-  }
-
-  void write(const std::string& body_part) { body += body_part; }
-
-  void end() {
-    if (!completed_) {
-      completed_ = true;
-
-      if (complete_request_handler_) {
-        complete_request_handler_();
-      }
+    void addHeader(const boost::string_view key, const boost::string_view value)
+    {
+        stringResponse->set(key, value);
     }
-  }
 
-  void end(const std::string& body_part) {
-    body += body_part;
-    end();
-  }
+    void addHeader(boost::beast::http::field key, boost::string_view value)
+    {
+        stringResponse->set(key, value);
+    }
 
-  bool is_alive() { return is_alive_helper_ && is_alive_helper_(); }
+    Response() : stringResponse(response_type{})
+    {
+    }
 
- private:
-  bool completed_{};
-  std::function<void()> complete_request_handler_;
-  std::function<bool()> is_alive_helper_;
+    explicit Response(boost::beast::http::status code) :
+        stringResponse(response_type{})
+    {
+    }
 
-  // In case of a JSON object, set the Content-Type header
-  void json_mode() { add_header("Content-Type", "application/json"); }
+    explicit Response(boost::string_view body_) :
+        stringResponse(response_type{})
+    {
+        stringResponse->body() = std::string(body_);
+    }
+
+    Response(boost::beast::http::status code, boost::string_view s) :
+        stringResponse(response_type{})
+    {
+        stringResponse->result(code);
+        stringResponse->body() = std::string(s);
+    }
+
+    Response(Response&& r)
+    {
+        BMCWEB_LOG_DEBUG << "Moving response containers";
+        *this = std::move(r);
+    }
+
+    ~Response()
+    {
+        BMCWEB_LOG_DEBUG << this << " Destroying response";
+    }
+
+    Response& operator=(const Response& r) = delete;
+
+    Response& operator=(Response&& r) noexcept
+    {
+        BMCWEB_LOG_DEBUG << "Moving response containers";
+        stringResponse = std::move(r.stringResponse);
+        r.stringResponse.emplace(response_type{});
+        jsonValue = std::move(r.jsonValue);
+        completed = r.completed;
+        return *this;
+    }
+
+    void result(boost::beast::http::status v)
+    {
+        stringResponse->result(v);
+    }
+
+    boost::beast::http::status result()
+    {
+        return stringResponse->result();
+    }
+
+    unsigned resultInt()
+    {
+        return stringResponse->result_int();
+    }
+
+    boost::string_view reason()
+    {
+        return stringResponse->reason();
+    }
+
+    bool isCompleted() const noexcept
+    {
+        return completed;
+    }
+
+    std::string& body()
+    {
+        return stringResponse->body();
+    }
+
+    void keepAlive(bool k)
+    {
+        stringResponse->keep_alive(k);
+    }
+
+    void preparePayload()
+    {
+        stringResponse->prepare_payload();
+    };
+
+    void clear()
+    {
+        BMCWEB_LOG_DEBUG << this << " Clearing response containers";
+        stringResponse.emplace(response_type{});
+        jsonValue.clear();
+        completed = false;
+    }
+
+    void write(boost::string_view body_part)
+    {
+        stringResponse->body() += std::string(body_part);
+    }
+
+    void end()
+    {
+        if (completed)
+        {
+            BMCWEB_LOG_ERROR << "Response was ended twice";
+            return;
+        }
+        completed = true;
+        BMCWEB_LOG_DEBUG << "calling completion handler";
+        if (completeRequestHandler)
+        {
+            BMCWEB_LOG_DEBUG << "completion handler was valid";
+            completeRequestHandler();
+        }
+    }
+
+    void end(boost::string_view body_part)
+    {
+        write(body_part);
+        end();
+    }
+
+    bool isAlive()
+    {
+        return isAliveHelper && isAliveHelper();
+    }
+
+  private:
+    bool completed{};
+    std::function<void()> completeRequestHandler;
+    std::function<bool()> isAliveHelper;
+
+    // In case of a JSON object, set the Content-Type header
+    void jsonMode()
+    {
+        addHeader("Content-Type", "application/json");
+    }
 };
-}  // namespace crow
+} // namespace crow
