@@ -38,146 +38,6 @@ using GetManagedObjectsType = boost::container::flat_map<
 using GetAllPropertiesType = PropertiesMapType;
 
 /**
- * Structure for keeping BMC Updater Software Interface information
- * available from DBus
- */
-struct SoftwareVersion
-{
-    const std::string *version;
-    const std::string *purpose;
-};
-
-/**
- * OnDemandSoftwareProvider
- * Software provider class that retrieves data directly from dbus, before seting
- * it into JSON output. This does not cache any data.
- *
- * TODO
- * This perhaps shall be different file, which has to be chosen on compile time
- * depending on OEM needs
- */
-class OnDemandSoftwareProvider
-{
-  private:
-    // Helper function that allows to extract GetAllPropertiesType from
-    // GetManagedObjectsType, based on object path, and interface name
-    const PropertiesMapType *extractInterfaceProperties(
-        const sdbusplus::message::object_path &objpath,
-        const std::string &interface, const GetManagedObjectsType &dbus_data)
-    {
-        const auto &dbus_obj = dbus_data.find(objpath);
-        if (dbus_obj != dbus_data.end())
-        {
-            const auto &iface = dbus_obj->second.find(interface);
-            if (iface != dbus_obj->second.end())
-            {
-                return &iface->second;
-            }
-        }
-        return nullptr;
-    }
-
-    // Helper Wrapper that does inline object_path conversion from string
-    // into sdbusplus::message::object_path type
-    inline const PropertiesMapType *
-        extractInterfaceProperties(const std::string &objpath,
-                                   const std::string &interface,
-                                   const GetManagedObjectsType &dbus_data)
-    {
-        const auto &dbusObj = sdbusplus::message::object_path{objpath};
-        return extractInterfaceProperties(dbusObj, interface, dbus_data);
-    }
-
-    // Helper function that allows to get pointer to the property from
-    // GetAllPropertiesType native, or extracted by GetAllPropertiesType
-    template <typename T>
-    inline T const *const extractProperty(const PropertiesMapType &properties,
-                                          const std::string &name)
-    {
-        const auto &property = properties.find(name);
-        if (property != properties.end())
-        {
-            return mapbox::getPtr<const T>(property->second);
-        }
-        return nullptr;
-    }
-    // TODO Consider to move the above functions to dbus
-    // generic_interfaces.hpp
-
-    // Helper function that extracts data from dbus object and
-    // interface required by single software interface instance
-    void extractSoftwareVersionIfaceData(const std::string &bmcIface_id,
-                                         const GetManagedObjectsType &dbus_data,
-                                         SoftwareVersion &softVer)
-    {
-        // Extract data that contains software version information
-        const PropertiesMapType *softVerProperties = extractInterfaceProperties(
-            "/xyz/openbmc_project/software/" + bmcIface_id,
-            "xyz.openbmc_project.Software.Version", dbus_data);
-
-        if (softVerProperties != nullptr)
-        {
-            softVer.version =
-                extractProperty<std::string>(*softVerProperties, "Version");
-            softVer.purpose =
-                extractProperty<std::string>(*softVerProperties, "Purpose");
-        }
-    }
-
-  public:
-    /**
-     * Function that retrieves Software Version property for given Managed
-     * Object from Software Manager
-     * @param callback a function that shall be called to convert Dbus output
-     * into JSON
-     */
-    template <typename CallbackFunc>
-    void getSoftwareIfaceData(CallbackFunc &&callback)
-    {
-        crow::connections::systemBus->async_method_call(
-            [this,
-             callback{std::move(callback)}](const boost::system::error_code ec,
-                                            const GetManagedObjectsType &resp) {
-                SoftwareVersion softVer{};
-
-                if (ec)
-                {
-                    // TODO Something wrong on DBus, the error_code is not
-                    // important at this moment, just return success=false, and
-                    // empty output.
-                    callback(false, softVer);
-                    return;
-                }
-
-                // Iterate over all retrieved ObjectPaths.
-                for (auto &objpath : resp)
-                {
-                    // And all interfaces available for certain ObjectPath.
-                    for (auto &interface : objpath.second)
-                    {
-                        if (interface.first ==
-                            "xyz.openbmc_project.Software.Version")
-                        {
-                            // Cut out everyting until last "/", ...
-                            const std::string &ifaceId = objpath.first;
-                            std::size_t lastPos = ifaceId.rfind("/");
-                            if (lastPos != std::string::npos)
-                            {
-                                extractSoftwareVersionIfaceData(
-                                    ifaceId.substr(lastPos + 1), resp, softVer);
-                            }
-                        }
-                    }
-                }
-                callback(true, softVer);
-            },
-            "xyz.openbmc_project.Software.BMC.Updater",
-            "/xyz/openbmc_project/software",
-            "org.freedesktop.DBus.ObjectManager", "GetManagedObjects");
-    };
-};
-
-/**
  * ManagerActionsReset class supports handle POST method for Reset action.
  * The class retrieves and sends data directly to dbus.
  */
@@ -325,19 +185,17 @@ class Manager : public Node
         Node::json["NetworkProtocol"] = nlohmann::json(
             {{"@odata.id", "/redfish/v1/Managers/bmc/NetworkProtocol"}});
         Node::json["EthernetInterfaces"] = nlohmann::json(
-            {{"@odata.id", "/redfish/v1/Managers/bmc/"
-                           "EthernetInterfaces"}}); // TODO(Pawel),
-                                                    // remove this
-                                                    // when
-                                                    // subroutes
-                                                    // will work
-                                                    // correctly
+            {{"@odata.id", "/redfish/v1/Managers/bmc/EthernetInterfaces"}});
         Node::json["Links"]["ManagerForServers"] = {
             {{"@odata.id", "/redfish/v1/Systems/1"}}};
         Node::json["Links"]["ManagerForChassis"] = {
             {{"@odata.id", "/redfish/v1/Chassis/1"}}};
         Node::json["Links"]["ManagerInChassis"] = {
             {"@odata.id", "/redfish/v1/Chassis/1"}};
+        Node::json["Actions"]["#Manager.Reset"] = {
+            {"target", "/redfish/v1/Managers/bmc/Actions/Manager.Reset"},
+            {"ResetType@Redfish.AllowableValues", {"GracefulRestart"}}};
+
         entityPrivileges = {
             {boost::beast::http::verb::get, {{"Login"}}},
             {boost::beast::http::verb::head, {{"Login"}}},
@@ -351,38 +209,58 @@ class Manager : public Node
     void doGet(crow::Response &res, const crow::Request &req,
                const std::vector<std::string> &params) override
     {
-        software_provider.getSoftwareIfaceData(
-            [&](const bool &success, const SoftwareVersion &softVer) {
-                if (success)
-                {
-                    Node::json["FirmwareVersion"] = *softVer.version;
-                }
-                else
-                {
-                    // No success, notify error message
-                    BMCWEB_LOG_ERROR << "Error while getting Software Version";
-                    Node::json["FirmwareVersion"] = "INTERNAL ERROR";
-                }
-            });
+        res.jsonValue = Node::json;
+        auto asyncResp = std::make_shared<AsyncResp>(res);
 
-        Node::json["Actions"]["#Manager.Reset"] = {
-            {"target", "/redfish/v1/Managers/bmc/Actions/Manager.Reset"},
-            {"ResetType@Redfish.AllowableValues", {"GracefulRestart"}}};
+        crow::connections::systemBus->async_method_call(
+            [asyncResp](const boost::system::error_code ec,
+                        const GetManagedObjectsType &resp) {
+                if (ec)
+                {
+                    BMCWEB_LOG_ERROR << "Error while getting Software Version";
+                    asyncResp->res.result(
+                        boost::beast::http::status::internal_server_error);
+                    return;
+                }
+
+                for (auto &objPath : resp)
+                {
+                    for (auto &interface : objPath.second)
+                    {
+                        if (interface.first ==
+                            "xyz.openbmc_project.Software.Version")
+                        {
+                            for (auto &property : interface.second)
+                            {
+                                if (property.first == "Version")
+                                {
+                                    const std::string *value =
+                                        mapbox::getPtr<const std::string>(
+                                            property.second);
+                                    if (value == nullptr)
+                                    {
+                                        continue;
+                                    }
+                                    asyncResp->res
+                                        .jsonValue["FirmwareVersion"] = *value;
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "xyz.openbmc_project.Software.BMC.Updater",
+            "/xyz/openbmc_project/software",
+            "org.freedesktop.DBus.ObjectManager", "GetManagedObjects");
 
         std::string redfishDateTime = getCurrentDateTime("%FT%T%z");
         // insert the colon required by the ISO 8601 standard
         redfishDateTime.insert(redfishDateTime.end() - 2, ':');
-        Node::json["DateTime"] = redfishDateTime;
-        Node::json["DateTimeLocalOffset"] =
+        asyncResp->res.jsonValue["DateTime"] = redfishDateTime;
+        asyncResp->res.jsonValue["DateTimeLocalOffset"] =
             redfishDateTime.substr(redfishDateTime.length() - 6);
-
-        res.jsonValue = Node::json;
-        res.end();
     }
 
-    // Software Provider object
-    // TODO consider move it to singleton
-    OnDemandSoftwareProvider software_provider;
     // Actions Reset object as a member of Manager resource.
     // Handle reset action from POST request.
     ManagerActionsReset memberActionsReset;
@@ -399,8 +277,7 @@ class ManagerCollection : public Node
             "/redfish/v1/$metadata#ManagerCollection.ManagerCollection";
         Node::json["Name"] = "Manager Collection";
         Node::json["Members@odata.count"] = 1;
-        Node::json["Members"] = {
-            {{"@odata.id", "/redfish/v1/Managers/bmc"}}};
+        Node::json["Members"] = {{{"@odata.id", "/redfish/v1/Managers/bmc"}}};
 
         entityPrivileges = {
             {boost::beast::http::verb::get, {{"Login"}}},
