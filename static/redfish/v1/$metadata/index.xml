@@ -41,6 +41,12 @@
     <edmx:Reference Uri="/redfish/v1/schema/EthernetInterfaceCollection_v1.xml">
         <edmx:Include Namespace="EthernetInterfaceCollection"/>
     </edmx:Reference>
+    <edmx:Reference Uri="/redfish/v1/schema/JsonSchemaFile_v1.xml">
+        <edmx:Include Namespace="JsonSchemaFile.v1_1_0"/>
+    </edmx:Reference>
+    <edmx:Reference Uri="/redfish/v1/schema/JsonSchemaFileCollection_v1.xml">
+        <edmx:Include Namespace="JsonSchemaFileCollection"/>
+    </edmx:Reference>
     <edmx:Reference Uri="/redfish/v1/schema/LogEntry_v1.xml">
         <edmx:Include Namespace="LogEntry"/>
         <edmx:Include Namespace="LogEntry.v1_0_3"/>
