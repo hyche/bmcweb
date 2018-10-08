@@ -346,6 +346,7 @@ class SoftwareInventory : public Node
         std::shared_ptr<std::string> sw_id =
             std::make_shared<std::string>(params[0]);
 
+        res.jsonValue["Id"] = *sw_id;
         res.jsonValue["@odata.id"] =
             "/redfish/v1/UpdateService/FirmwareInventory/" + *sw_id;
 
