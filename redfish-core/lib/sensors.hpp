@@ -348,9 +348,10 @@ void objectInterfacesToJson(
         unit = "ReadingVolts";
         sensor_json["@odata.type"] = "#Power.v1_0_0.Voltage";
     }
-    else if (sensorType == "power")
+    else if (sensorType == "power" || sensorType == "current")
     {
         unit = "LastPowerOutputWatts";
+        sensor_json["@odata.type"] = "#Power.v1_5_0.PowerSupply";
     }
     else
     {
