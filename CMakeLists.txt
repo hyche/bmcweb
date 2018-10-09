@@ -149,7 +149,7 @@ add_definitions ("-Wno-attributes")
 # Copy pam-webserver to etc/pam.d
 install (
     FILES ${CMAKE_CURRENT_SOURCE_DIR}/pam-webserver
-    DESTINATION /etc/pam.d/
+    DESTINATION etc/pam.d/
     RENAME webserver
 )
 
