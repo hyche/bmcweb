@@ -293,9 +293,9 @@ void getComputerSystem(std::shared_ptr<AsyncResp> asyncResp)
             }
 
             // Verify ifaceName
-            for (auto &p : std::array<const std::string, 6>{
+            for (auto &p : std::array<const std::string, 7>{
                      "Asset_Tag", "Manufacturer", "Model_Number", "Name",
-                     "Serial_Number", "Part_Number"})
+                     "Serial_Number", "Part_Number", "SKU"})
             {
                 PropertiesType::const_iterator it = properties.find(p);
                 if (it != properties.end())
@@ -319,6 +319,10 @@ void getComputerSystem(std::shared_ptr<AsyncResp> asyncResp)
                         else if (p == "Part_Number")
                         {
                             asyncResp->res.jsonValue["PartNumber"] = *s;
+                        }
+                        else if (p == "SKU")
+                        {
+                            asyncResp->res.jsonValue["SKU"] = *s;
                         }
                         else
                         {
