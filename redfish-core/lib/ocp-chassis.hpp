@@ -196,10 +196,10 @@ class Chassis : public Node
      * Default Constructor
      */
     template <typename CrowApp>
-    Chassis(CrowApp &app) : Node(app, "/redfish/v1/Chassis/1/")
+    Chassis(CrowApp &app) :
+        Node(app, "/redfish/v1/Chassis/<str>/", std::string())
     {
         Node::json["@odata.type"] = "#Chassis.v1_4_0.Chassis";
-        Node::json["@odata.id"] = "/redfish/v1/Chassis/1";
         Node::json["@odata.context"] = "/redfish/v1/$metadata#Chassis.Chassis";
         Node::json["Name"] =
             "Ampere System Chassis"; // TODO hardcode in temporary.
@@ -232,8 +232,17 @@ class Chassis : public Node
     void doGet(crow::Response &res, const crow::Request &req,
                const std::vector<std::string> &params) override
     {
-        auto asyncResp = std::make_shared<AsyncResp>(res);
+        const std::string &chassisId = params[0];
+        // TODO(HY): Remove ocp-chassis in the future since it causes lots of
+        //           mess.
+        if (chassisId != "1")
+        {
+            res.result(boost::beast::http::status::not_found);
+            res.end();
+            return;
+        }
 
+        Node::json["@odata.id"] = "/redfish/v1/Chassis/1";
         Node::json["Thermal"] = {
             {"@odata.id", "/redfish/v1/Chassis/1/Thermal"}};
         Node::json["Power"] = {{"@odata.id", "/redfish/v1/Chassis/1/Power"}};
@@ -242,6 +251,7 @@ class Chassis : public Node
         Node::json["Links"]["ManagedBy"] = {
             {{"@odata.id", "/redfish/v1/Managers/bmc"}}};
 
+        auto asyncResp = std::make_shared<AsyncResp>(res);
         asyncResp->res.jsonValue = Node::json;
 
         // Get chassis information:
@@ -275,7 +285,7 @@ class ChassisCollection : public Node
     ChassisCollection(CrowApp &app) : Node(app, "/redfish/v1/Chassis/")
     {
         Node::json["@odata.type"] = "#ChassisCollection.ChassisCollection";
-        // Node::json["@odata.id"] = "/redfish/v1/Chassis";
+        Node::json["@odata.id"] = "/redfish/v1/Chassis";
         Node::json["@odata.context"] =
              "/redfish/v1/$metadata#ChassisCollection.ChassisCollection";
         Node::json["Name"] = "Chassis Collection";
@@ -299,7 +309,6 @@ class ChassisCollection : public Node
                const std::vector<std::string> &params) override
     {
         res.jsonValue = Node::json;
-        res.jsonValue["@odata.id"] = "/redfish/v1/Chassis";
         res.end();
     }
 };
