@@ -81,8 +81,8 @@ class OnDemandChassisProvider
                 }
                 // Prepare all the schema required fields which retrieved from
                 // D-Bus.
-                for (const char *p : std::array<const char *, 2>{
-                         "Part_Number", "Serial_Number"})
+                for (const char *p : std::array<const char *, 3>{
+                         "Part_Number", "Serial_Number", "SKU"})
                 {
                     PropertiesType::const_iterator it = properties.find(p);
                     if (it != properties.end())
@@ -206,8 +206,7 @@ class Chassis : public Node
         // TODO Implements mapping from fru to redfish
         Node::json["ChassisType"] = "RackMount";
         Node::json["Id"] = "1";
-        // TODO Currently not support "SKU" and "AssetTag" yet
-        Node::json["SKU"] = "";
+        // TODO Support AssetTag property
         Node::json["AssetTag"] = "";
         // TODO Initial State for chassis
         Node::json["PowerState"] = "Off";
