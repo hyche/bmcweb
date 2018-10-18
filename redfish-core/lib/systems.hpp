@@ -85,7 +85,7 @@ void getBootPolicy(std::shared_ptr<AsyncResp> asyncResp)
             }
             // Prepare all the schema required fields which retrieved from
             // D-Bus.
-            for (const char *p : std::array<const char *, 2>{
+            for (const std::string p : std::array<const char *, 2>{
                      "BootSourceOverrideEnabled", "BootSourceOverrideTarget"})
             {
                 PropertiesType::const_iterator it = properties.find(p);
@@ -127,8 +127,8 @@ void getProcessorSummary(std::shared_ptr<AsyncResp> asyncResp)
             }
             // Prepare all the schema required fields which retrieved
             // from D-Bus.
-            for (const char *p : std::array<const char *, 4>{"Count", "Model",
-                                                             "State", "Health"})
+            for (const std::string p : std::array<const char *, 4>{
+                     "Count", "Model", "State", "Health"})
             {
                 PropertiesType::const_iterator it = properties.find(p);
                 if (it != properties.end())
@@ -192,7 +192,7 @@ void getMemorySummary(std::shared_ptr<AsyncResp> asyncResp)
 
             // Prepare all the schema required fields which retrieved
             // from D-Bus.
-            for (const char *p : std::array<const char *, 3>{
+            for (const std::string p : std::array<const char *, 3>{
                      "TotalSystemMemoryGiB", "State", "Health"})
             {
                 PropertiesType::const_iterator it = properties.find(p);

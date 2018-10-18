@@ -81,7 +81,7 @@ class OnDemandChassisProvider
                 }
                 // Prepare all the schema required fields which retrieved from
                 // D-Bus.
-                for (const char *p : std::array<const char *, 3>{
+                for (const std::string p : std::array<const char *, 3>{
                          "Part_Number", "Serial_Number", "SKU"})
                 {
                     PropertiesType::const_iterator it = properties.find(p);
