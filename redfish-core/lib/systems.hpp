@@ -504,6 +504,97 @@ void getHostState(std::shared_ptr<AsyncResp> aResp)
         "xyz.openbmc_project.State.Host", "CurrentHostState");
 }
 
+void getHostHealth(std::shared_ptr<AsyncResp> aResp)
+{
+    BMCWEB_LOG_DEBUG << "Get host heath information.";
+    /* By default, the Health is Good */
+    aResp->res.jsonValue["Status"]["Health"] = "Good";
+    crow::connections::systemBus->async_method_call(
+        [aResp{std::move(aResp)}] (
+            const boost::system::error_code ec,
+            const std::vector<std::pair<
+                std::string, std::vector<std::pair<
+                                 std::string, std::vector<std::string>>>>>
+                &subtree) {
+            if (ec)
+            {
+                /* No log entry */
+                return;
+            }
+            for (auto &obj : subtree)
+            {
+                const std::vector<
+                    std::pair<std::string, std::vector<std::string>>>
+                    &connections = obj.second;
+
+                for (auto &conn : connections)
+                {
+                    const std::string &connectionName = conn.first;
+                        crow::connections::systemBus->async_method_call(
+                        [aResp{std::move(aResp)}] (
+                            const boost::system::error_code error_code,
+                            const VariantType &severity) {
+
+                            if (error_code)
+                            {
+                                /* No log entry */
+                                return;
+                            }
+                            const std::string *severity_value =
+                                    mapbox::getPtr<const std::string>(
+                                        severity);
+                            if (severity_value == nullptr)
+                            {
+                                /* No log entry */
+                                return;
+                            }
+                            std::string entryLevel =
+                                severity_value->substr(
+                                severity_value->rfind(".") + 1);
+                            /* Value of severity is exist */
+                            /* Check to determine the value of heath */
+                            /*
+                             * Log severity level ->  Health value
+                             * Emergency              Critical
+                             * Alert                  Critical
+                             * Critical               Critical
+                             * Error                  Warning
+                             * Warning                Warning
+                             * Notice                 Good
+                             * Debug                  Good
+                             * Informational          Good
+                             */
+                            if ((entryLevel == "Error") ||
+                                (entryLevel == "Warning"))
+                            {
+                                aResp->res.jsonValue
+                                  ["Status"]["Health"] = "Warning";
+                            }
+                            /* Continue checking if have any critical event */
+                            if ((entryLevel == "Critical") ||
+                                (entryLevel == "Alert") ||
+                                (entryLevel == "Emergency"))
+                            {
+                                aResp->res.jsonValue
+                                  ["Status"]["Health"] = "Critical";
+                                return;
+                            }
+                        },
+                        connectionName, obj.first,
+                        "org.freedesktop.DBus.Properties", "Get",
+                        "xyz.openbmc_project.Logging.Entry",
+                        "Severity");
+                }
+            }
+        },
+        "xyz.openbmc_project.ObjectMapper",
+        "/xyz/openbmc_project/object_mapper",
+        "xyz.openbmc_project.ObjectMapper", "GetSubTree",
+        "/xyz/openbmc_project/logging", int32_t(0),
+        std::array<const char *, 1>{
+            "xyz.openbmc_project.Logging.Entry"});
+};
+
 /**
  * @brief Retrieves Host Name from system call.
  *
@@ -806,6 +897,7 @@ class Systems : public Node
                 }
             });
         getHostState(asyncResp);
+        getHostHealth(asyncResp);
         getComputerSystem(asyncResp);
     }
 
