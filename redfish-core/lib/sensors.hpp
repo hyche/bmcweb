@@ -374,7 +374,7 @@ void objectInterfacesToJson(
     properties.emplace_back("xyz.openbmc_project.Sensor.Threshold.Fatal",
                             "FatalHigh", "UpperThresholdFatal");
     properties.emplace_back("xyz.openbmc_project.Sensor.Threshold.Fatal",
-                            "FatalHigh", "LowerThresholdFatal");
+                            "FatalLow", "LowerThresholdFatal");
 
     if (sensorType == "temperature")
     {
