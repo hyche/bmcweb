@@ -507,8 +507,8 @@ void getHostState(std::shared_ptr<AsyncResp> aResp)
 void getHostHealth(std::shared_ptr<AsyncResp> aResp)
 {
     BMCWEB_LOG_DEBUG << "Get host heath information.";
-    /* By default, the Health is Good */
-    aResp->res.jsonValue["Status"]["Health"] = "Good";
+    /* By default, the Health is OK */
+    aResp->res.jsonValue["Status"]["Health"] = "OK";
     crow::connections::systemBus->async_method_call(
         [aResp{std::move(aResp)}] (
             const boost::system::error_code ec,
@@ -560,9 +560,9 @@ void getHostHealth(std::shared_ptr<AsyncResp> aResp)
                              * Critical               Critical
                              * Error                  Warning
                              * Warning                Warning
-                             * Notice                 Good
-                             * Debug                  Good
-                             * Informational          Good
+                             * Notice                 OK
+                             * Debug                  OK
+                             * Informational          OK
                              */
                             if ((entryLevel == "Error") ||
                                 (entryLevel == "Warning"))
