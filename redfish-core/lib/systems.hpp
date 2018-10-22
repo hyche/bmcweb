@@ -868,6 +868,11 @@ class Systems : public Node
         res.jsonValue["@odata.id"] = "/redfish/v1/Systems/" + name;
         res.jsonValue["Id"] = name;
         res.jsonValue["HostName"] = getHostName();
+
+        res.jsonValue["Processors"] = {
+            {"@odata.id", "/redfish/v1/Systems/" + name + "/Processors"}};
+        res.jsonValue["Memory"] = {
+            {"@odata.id", "/redfish/v1/Systems/" + name + "/Memory"}};
         res.jsonValue["Actions"]["#ComputerSystem.Reset"] = {
             {"target",
              "/redfish/v1/Systems/" + name + "/Actions/ComputerSystem.Reset"},

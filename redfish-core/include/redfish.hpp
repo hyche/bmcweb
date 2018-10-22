@@ -16,6 +16,7 @@
 #pragma once
 
 #include "../lib/account_service.hpp"
+#include "../lib/cpudimm.hpp"
 #include "../lib/ethernet.hpp"
 #include "../lib/managers.hpp"
 #include "../lib/network_protocol.hpp"
@@ -77,6 +78,12 @@ class RedfishService
         nodes.emplace_back(std::make_unique<SoftwareInventory>(app));
         nodes.emplace_back(
             std::make_unique<VlanNetworkInterfaceCollection>(app));
+
+        nodes.emplace_back(std::make_unique<ProcessorCollection>(app));
+        nodes.emplace_back(std::make_unique<Processor>(app));
+        nodes.emplace_back(std::make_unique<MemoryCollection>(app));
+        nodes.emplace_back(std::make_unique<Memory>(app));
+
         nodes.emplace_back(std::make_unique<SystemsCollection>(app));
         nodes.emplace_back(std::make_unique<Systems>(app));
         nodes.emplace_back(std::make_unique<SystemActionsReset>(app));
