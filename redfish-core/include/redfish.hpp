@@ -33,6 +33,7 @@
 #include "../lib/systems.hpp"
 #include "../lib/logservices.hpp"
 #include "../lib/ethernetinterfaces.hpp"
+#include "../lib/processors.hpp"
 #include "../lib/update_service.hpp"
 #include "webserver_common.hpp"
 
@@ -80,6 +81,7 @@ class RedfishService
         nodes.emplace_back(std::make_unique<SystemActionsReset>(app));
         nodes.emplace_back(std::make_unique<LogServiceCollection>(app));
         nodes.emplace_back(std::make_unique<EthernetInterfaceCollection>(app));
+        nodes.emplace_back(std::make_unique<ProcessorCollection>(app));
         nodes.emplace_back(std::make_unique<LogService>(app));
         nodes.emplace_back(std::make_unique<LogEntryCollection>(app));
         nodes.emplace_back(std::make_unique<LogEntry>(app));
