@@ -559,9 +559,9 @@ class ManagerAccount : public Node
                                     boost::beast::http::status::no_content);
                             },
                             "xyz.openbmc_project.User.Manager",
-                            "/xyz/openbmc_project/users/" + username,
+                            "/xyz/openbmc_project/user/" + username,
                             "org.freedesktop.DBus.Properties", "Set",
-                            "xyz.openbmc_project.User.Attributes"
+                            "xyz.openbmc_project.User.Attributes",
                             "UserEnabled",
                             sdbusplus::message::variant<bool>{*enabledBool});
                     }
