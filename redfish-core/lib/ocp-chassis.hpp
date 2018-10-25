@@ -118,6 +118,57 @@ class OnDemandChassisProvider
     }
 
     /**
+     * Function that retrieves some properties for given Chassis Object.
+     * @param[in] aResp     Shared pointer for completing asynchronous calls.
+     * @return None.
+     * TODO: These info is not available from Chassis Area
+     *       So we need to use the info from Product Area.
+     *       Update for Chassis Area after this info is available
+     */
+    void get_chassis_data_from_product(const std::shared_ptr<AsyncResp> aResp)
+    {
+        crow::connections::systemBus->async_method_call(
+            [aResp{std::move(aResp)}](const boost::system::error_code ec,
+                                      const PropertiesType &properties) {
+                // Callback requires flat_map<string, string> so prepare one.
+                boost::container::flat_map<std::string, std::string> output;
+                if (ec)
+                {
+                    aResp->res.result(
+                        boost::beast::http::status::internal_server_error);
+                    return;
+                }
+                // Prepare all the schema required fields which retrieved from
+                // D-Bus.
+                for (const std::string p : std::array<const char *, 2>{
+                         "Manufacturer", "Name"})
+                {
+                    PropertiesType::const_iterator it = properties.find(p);
+                    if (it != properties.end())
+                    {
+                        const std::string *s =
+                            mapbox::getPtr<const std::string>(it->second);
+                        if (s != nullptr)
+                        {
+                            if (p == "Manufacturer")
+                            {
+                                aResp->res.jsonValue["Manufacturer"] = *s;
+                            }
+                            if (p == "Name")
+                            {
+                                aResp->res.jsonValue["Model"] = *s;
+                            }
+                       }
+                    }
+                }
+            },
+            "xyz.openbmc_project.Inventory.FRU",
+            "/xyz/openbmc_project/inventory/fru0/product",
+            "org.freedesktop.DBus.Properties", "GetAll",
+            "xyz.openbmc_project.Inventory.FRU.Product");
+    }
+
+    /**
      * @brief Retrieves chassis state properties over D-Bus
      *
      * @param[in] aResp     Shared pointer for completing asynchronous calls.
@@ -256,12 +307,18 @@ class Chassis : public Node
         asyncResp->res.jsonValue = Node::json;
 
         // Get chassis information:
-        //        Manufacturer,
         //        Name,
         //        SerialNumber,
         //        PartNumber,
-        //        Model
         chassis_provider.get_chassis_data(asyncResp);
+
+        // Get chassis information:
+        //        Manufacturer,
+        //        Model
+        // TODO: Because this info is not available from Chassis Area
+        //       So get follow chassis information from Product FRU Area
+        //       Update the solution after Chassis Area supports this info
+        chassis_provider.get_chassis_data_from_product(asyncResp);
 
         // Get chassis state:
         //        PowerState,
