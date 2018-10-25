@@ -242,6 +242,120 @@ class OnDemandChassisProvider
 };
 
 /**
+ * ChassisActionsReset class supports handle POST method for Reset action.
+ * The class retrieves and sends data directly to D-Bus.
+ */
+class ChassisActionsReset : public Node
+{
+  public:
+    ChassisActionsReset(CrowApp &app) :
+        Node(app, "/redfish/v1/Chassis/<str>/Actions/Chassis.Reset/",
+             std::string())
+    {
+        entityPrivileges = {
+            {boost::beast::http::verb::post, {{"ConfigureComponents"}}}};
+    }
+
+  private:
+    /**
+     * Function handles POST method request.
+     * Analyzes POST body message before sends Reset request data to D-Bus.
+     */
+    void doPost(crow::Response &res, const crow::Request &req,
+                const std::vector<std::string> &params) override
+    {
+        // Parse JSON request body.
+        nlohmann::json post;
+        if (!json_util::processJsonFromRequest(res, req, post))
+        {
+            return;
+        }
+
+        auto asyncResp = std::make_shared<AsyncResp>(res);
+
+        for (const auto &item : post.items())
+        {
+            if (item.key() == "ResetType")
+            {
+                const std::string *reqResetType =
+                    item.value().get_ptr<const std::string *>();
+                if (reqResetType == nullptr)
+                {
+                    res.result(boost::beast::http::status::bad_request);
+                    messages::addMessageToErrorJson(
+                        asyncResp->res.jsonValue,
+                        messages::actionParameterValueFormatError(
+                            item.value().dump(), "ResetType",
+                            "Chassis.Reset"));
+                    res.end();
+                    return;
+                }
+
+                std::string command;
+                if (*reqResetType == "On")
+                {
+                    command = "xyz.openbmc_project.State.Chassis."
+                              "Transition.On";
+                }
+                else if (*reqResetType == "ForceOff")
+                {
+                    command = "xyz.openbmc_project.State.Chassis."
+                              "Transition.Off";
+                }
+                else if (*reqResetType == "ForceRestart")
+                {
+                    command = "xyz.openbmc_project.State.Chassis."
+                              "Transition.Reboot";
+                }
+                else
+                {
+                    res.result(boost::beast::http::status::bad_request);
+                    messages::addMessageToErrorJson(
+                        asyncResp->res.jsonValue,
+                        messages::actionParameterNotSupported("Chassis.Reset",
+                                                     item.key()));
+                    return;
+                }
+
+                crow::connections::systemBus->async_method_call(
+                    [asyncResp](const boost::system::error_code ec) {
+                        if (ec)
+                        {
+                            BMCWEB_LOG_ERROR << "D-Bus responses error: "
+                                             << ec;
+                            asyncResp->res.result(
+                                boost::beast::http::status::
+                                    internal_server_error);
+                            return;
+                        }
+                        // TODO Consider support polling mechanism to verify
+                        // status of host and chassis after execute the
+                        // requested action.
+                        BMCWEB_LOG_DEBUG << "Response with no content";
+                        asyncResp->res.result(
+                            boost::beast::http::status::no_content);
+                    },
+                    "xyz.openbmc_project.State.Chassis",
+                    "/xyz/openbmc_project/state/chassis0",
+                    "org.freedesktop.DBus.Properties", "Set",
+                    "xyz.openbmc_project.State.Chassis",
+                    "RequestedPowerTransition",
+                    sdbusplus::message::variant<std::string>{command});
+                return;
+            }
+            else
+            {
+                res.result(boost::beast::http::status::bad_request);
+                messages::addMessageToErrorJson(
+                    asyncResp->res.jsonValue,
+                    messages::actionParameterUnknown("Chassis.Reset",
+                                                     item.key()));
+            }
+        }
+    }
+};
+
+/**
  * Chassis override class for delivering Chassis Schema
  */
 class Chassis : public Node
@@ -302,6 +416,11 @@ class Chassis : public Node
             {{"@odata.id", "/redfish/v1/Systems/1"}}};
         Node::json["Links"]["ManagedBy"] = {
             {{"@odata.id", "/redfish/v1/Managers/bmc"}}};
+        Node::json["Actions"]["#Chassis.Reset"] = {
+            {"target",
+             "/redfish/v1/Chassis/1/Actions/Chassis.Reset"},
+            {"ResetType@Redfish.AllowableValues",
+             {"On", "ForceOff", "ForceRestart"}}};
 
         auto asyncResp = std::make_shared<AsyncResp>(res);
         asyncResp->res.jsonValue = Node::json;
