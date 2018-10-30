@@ -26,8 +26,9 @@ namespace redfish
 using ManagedObjectType = std::vector<std::pair<
     sdbusplus::message::object_path,
     boost::container::flat_map<
-        std::string, boost::container::flat_map<
-                         std::string, sdbusplus::message::variant<bool>>>>>;
+        std::string,
+        boost::container::flat_map<
+            std::string, sdbusplus::message::variant<bool, std::string>>>>>;
 
 class AccountService : public Node
 {
@@ -344,6 +345,27 @@ inline void checkDbusPathExists(const std::string& path, Callback&& callback)
         std::array<std::string, 0>());
 }
 
+inline std::string getRoleIdFromPrivilege(boost::beast::string_view priv)
+{
+    if (priv == "priv-admin")
+    {
+        return "Administrator";
+    }
+    else if (priv == "priv-callback")
+    {
+        return "Callback";
+    }
+    else if (priv == "priv-user")
+    {
+        return "ReadOnly";
+    }
+    else if (priv == "priv-operator")
+    {
+        return "Operator";
+    }
+    return "";
+}
+
 class ManagerAccount : public Node
 {
   public:
@@ -353,15 +375,9 @@ class ManagerAccount : public Node
         Node::json = {{"@odata.context",
                        "/redfish/v1/$metadata#ManagerAccount.ManagerAccount"},
                       {"@odata.type", "#ManagerAccount.v1_0_3.ManagerAccount"},
-
                       {"Name", "User Account"},
                       {"Description", "User Account"},
-                      {"Password", nullptr},
-                      {"RoleId", "Administrator"},
-                      {"Links",
-                       {{"Role",
-                         {{"@odata.id", "/redfish/v1/AccountService/Roles/"
-                                        "Administrator"}}}}}};
+                      {"Password", nullptr}};
 
         entityPrivileges = {
             {boost::beast::http::verb::get,
@@ -397,6 +413,8 @@ class ManagerAccount : public Node
                     return;
                 }
 
+                auto& links = asyncResp->res.jsonValue["Links"];
+                links = nlohmann::json::object();
                 for (auto& user : users)
                 {
                     const std::string& path =
@@ -442,11 +460,33 @@ class ManagerAccount : public Node
                                         if (userLocked == nullptr)
                                         {
                                             BMCWEB_LOG_ERROR
-                                                << "UserEnabled wasn't a bool";
+                                                << "UserLockedForFailedAttempt "
+                                                   "wasn't a bool";
                                             continue;
                                         }
                                         asyncResp->res.jsonValue["Locked"] =
                                             *userLocked;
+                                    }
+                                    else if (property.first == "UserPrivilege")
+                                    {
+                                        const std::string* userPriv =
+                                            mapbox::getPtr<std::string>(
+                                                property.second);
+                                        if (userPriv == nullptr)
+                                        {
+                                            BMCWEB_LOG_ERROR
+                                                << "UserPrivilege wasn't a "
+                                                   "string";
+                                            continue;
+                                        }
+                                        const std::string role =
+                                            getRoleIdFromPrivilege(*userPriv);
+                                        asyncResp->res.jsonValue["RoleId"] =
+                                            role;
+                                        links["Role"] = {
+                                            {"@odata.id",
+                                             "/redfish/v1/AccountService/"
+                                             "Roles/" + role}};
                                     }
                                 }
                             }
