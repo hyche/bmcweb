@@ -210,7 +210,7 @@ class AccountsCollection : public Node
                         boost::beast::http::status::bad_request);
                     return;
                 }
-                const char* priv = getRoleIdFromPrivilege(*roleIdJson);
+                const char* priv = getPrivilegeFromRoleId(*roleIdJson);
                 if (priv == nullptr)
                 {
                     messages::addMessageToErrorJson(
@@ -305,7 +305,7 @@ class AccountsCollection : public Node
             privilege, enabled);
     }
 
-    static const char* getRoleIdFromPrivilege(boost::beast::string_view role)
+    static const char* getPrivilegeFromRoleId(boost::beast::string_view role)
     {
         if (role == "Administrator")
         {
@@ -315,7 +315,7 @@ class AccountsCollection : public Node
         {
             return "priv-callback";
         }
-        else if (role == "User")
+        else if (role == "ReadOnly")
         {
             return "priv-user";
         }
