@@ -24,19 +24,12 @@ class Roles : public Node
 {
   public:
     Roles(CrowApp& app) :
-        Node(app, "/redfish/v1/AccountService/Roles/Administrator/")
+        Node(app, "/redfish/v1/AccountService/Roles/<str>/", std::string())
     {
-        Node::json["@odata.id"] =
-            "/redfish/v1/AccountService/Roles/Administrator";
         Node::json["@odata.type"] = "#Role.v1_0_2.Role";
         Node::json["@odata.context"] = "/redfish/v1/$metadata#Role.Role";
-        Node::json["Id"] = "Administrator";
         Node::json["Name"] = "User Role";
-        Node::json["Description"] = "Administrator User Role";
         Node::json["IsPredefined"] = true;
-        Node::json["AssignedPrivileges"] = {"Login", "ConfigureManager",
-                                            "ConfigureUsers", "ConfigureSelf",
-                                            "ConfigureComponents"};
         Node::json["OemPrivileges"] = nlohmann::json::array();
         entityPrivileges = {
             {boost::beast::http::verb::get, {{"Login"}}},
@@ -52,7 +45,38 @@ class Roles : public Node
                const std::vector<std::string>& params) override
     {
         res.jsonValue = Node::json;
-        res.end();
+        auto asyncResp = std::make_shared<AsyncResp>(res);
+
+        const std::string& role = params[0];
+        if (role == "Administrator")
+        {
+            res.jsonValue["AssignedPrivileges"] = {
+                "Login", "ConfigureManager", "ConfigureUsers", "ConfigureSelf",
+                "ConfigureComponents"};
+        }
+        else if (role == "Operator")
+        {
+            res.jsonValue["AssignedPrivileges"] = {"Login", "ConfigureSelf",
+                                                   "ConfigureComponents"};
+        }
+        else if (role == "ReadOnly")
+        {
+            res.jsonValue["AssignedPrivileges"] = {"Login", "ConfigureSelf"};
+        }
+        else if (role == "Callback")
+        {
+            res.jsonValue["AssignedPrivileges"] = {"Login", "ConfigureSelf"};
+            res.jsonValue["IsPredefined"] = false;
+        }
+        else
+        {
+            res.result(boost::beast::http::status::not_found);
+            return;
+        }
+
+        res.jsonValue["@odata.id"] = "/redfish/v1/AccountService/Roles/" + role;
+        res.jsonValue["Id"] = role;
+        res.jsonValue["Description"] = role + " User Role";
     }
 };
 
@@ -68,9 +92,12 @@ class RoleCollection : public Node
             "/redfish/v1/$metadata#RoleCollection.RoleCollection";
         Node::json["Name"] = "Roles Collection";
         Node::json["Description"] = "BMC User Roles";
-        Node::json["Members@odata.count"] = 1;
+        Node::json["Members@odata.count"] = 4;
         Node::json["Members"] = {
-            {{"@odata.id", "/redfish/v1/AccountService/Roles/Administrator"}}};
+            {{"@odata.id", "/redfish/v1/AccountService/Roles/Administrator"}},
+            {{"@odata.id", "/redfish/v1/AccountService/Roles/Callback"}},
+            {{"@odata.id", "/redfish/v1/AccountService/Roles/Operator"}},
+            {{"@odata.id", "/redfish/v1/AccountService/Roles/ReadOnly"}}};
 
         entityPrivileges = {
             {boost::beast::http::verb::get, {{"Login"}}},
@@ -86,11 +113,6 @@ class RoleCollection : public Node
                const std::vector<std::string>& params) override
     {
         res.jsonValue = Node::json;
-        // This is a short term solution to work around a bug.  GetSubroutes
-        // accidentally recognizes the Roles/Administrator route as a subroute
-        // (because it's hardcoded to a single entity).  Remove this line when
-        // that is resolved
-        res.jsonValue.erase("Administrator");
         res.end();
     }
 };
