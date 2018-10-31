@@ -30,6 +30,27 @@ using ManagedObjectType = std::vector<std::pair<
         boost::container::flat_map<
             std::string, sdbusplus::message::variant<bool, std::string>>>>>;
 
+inline const char* getPrivilegeFromRoleId(boost::beast::string_view role)
+{
+    if (role == "Administrator")
+    {
+        return "priv-admin";
+    }
+    else if (role == "Callback")
+    {
+        return "priv-callback";
+    }
+    else if (role == "ReadOnly")
+    {
+        return "priv-user";
+    }
+    else if (role == "Operator")
+    {
+        return "priv-operator";
+    }
+    return nullptr;
+}
+
 class AccountService : public Node
 {
   public:
@@ -67,6 +88,7 @@ class AccountService : public Node
         res.end();
     }
 };
+
 class AccountsCollection : public Node
 {
   public:
@@ -304,27 +326,6 @@ class AccountsCollection : public Node
             "xyz.openbmc_project.User.Manager", "CreateUser", *username,
             std::array<const char*, 4>{"ipmi", "redfish", "ssh", "web"},
             privilege, enabled);
-    }
-
-    static const char* getPrivilegeFromRoleId(boost::beast::string_view role)
-    {
-        if (role == "Administrator")
-        {
-            return "priv-admin";
-        }
-        else if (role == "Callback")
-        {
-            return "priv-callback";
-        }
-        else if (role == "ReadOnly")
-        {
-            return "priv-user";
-        }
-        else if (role == "Operator")
-        {
-            return "priv-operator";
-        }
-        return nullptr;
     }
 };
 
@@ -638,6 +639,54 @@ class ManagerAccount : public Node
                             "/xyz/openbmc_project/user",
                             "xyz.openbmc_project.User.Manager", "RenameUser",
                             username, *new_username);
+                    }
+                    else if (item.key() == "RoleId")
+                    {
+                        const std::string* role =
+                            item.value().get_ptr<const std::string*>();
+
+                        if (role == nullptr)
+                        {
+                            messages::addMessageToErrorJson(
+                                asyncResp->res.jsonValue,
+                                messages::propertyValueFormatError(
+                                    item.value().dump(), "RoleId"));
+                            return;
+                        }
+
+                        const char* priv = getPrivilegeFromRoleId(*role);
+                        if (priv == nullptr)
+                        {
+                            messages::addMessageToErrorJson(
+                                asyncResp->res.jsonValue,
+                                messages::propertyValueNotInList(*role,
+                                                                 item.key()));
+                            asyncResp->res.result(
+                                boost::beast::http::status::bad_request);
+                            return;
+                        }
+
+                        crow::connections::systemBus->async_method_call(
+                            [asyncResp](const boost::system::error_code ec) {
+                                if (ec)
+                                {
+                                    BMCWEB_LOG_ERROR
+                                        << "D-Bus responses error: " << ec;
+                                    asyncResp->res.result(
+                                        boost::beast::http::status::
+                                            internal_server_error);
+                                    return;
+                                }
+                                BMCWEB_LOG_DEBUG << "Response with no content";
+                                asyncResp->res.result(
+                                    boost::beast::http::status::no_content);
+                            },
+                            "xyz.openbmc_project.User.Manager",
+                            "/xyz/openbmc_project/user/" + username,
+                            "org.freedesktop.DBus.Properties", "Set",
+                            "xyz.openbmc_project.User.Attributes",
+                            "UserPrivilege",
+                            sdbusplus::message::variant<std::string>{priv});
                     }
                     else
                     {
