@@ -605,6 +605,40 @@ class ManagerAccount : public Node
                             "UserEnabled",
                             sdbusplus::message::variant<bool>{*enabledBool});
                     }
+                    else if (item.key() == "UserName")
+                    {
+                        const std::string* new_username =
+                            item.value().get_ptr<const std::string*>();
+
+                        if (new_username == nullptr)
+                        {
+                            messages::addMessageToErrorJson(
+                                asyncResp->res.jsonValue,
+                                messages::propertyValueFormatError(
+                                    item.value().dump(), "UserName"));
+                            return;
+                        }
+                        crow::connections::systemBus->async_method_call(
+                            [asyncResp](const boost::system::error_code ec) {
+                                if (ec)
+                                {
+                                    BMCWEB_LOG_ERROR
+                                        << "D-Bus responses error: " << ec;
+                                    asyncResp->res.result(
+                                        boost::beast::http::status::
+                                            internal_server_error);
+                                    return;
+                                }
+                                // TODO May notify user after rename.
+                                BMCWEB_LOG_DEBUG << "Response with no content";
+                                asyncResp->res.result(
+                                    boost::beast::http::status::no_content);
+                            },
+                            "xyz.openbmc_project.User.Manager",
+                            "/xyz/openbmc_project/user",
+                            "xyz.openbmc_project.User.Manager", "RenameUser",
+                            username, *new_username);
+                    }
                     else
                     {
                         messages::addMessageToErrorJson(
