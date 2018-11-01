@@ -378,7 +378,12 @@ class ManagerAccount : public Node
                       {"@odata.type", "#ManagerAccount.v1_0_3.ManagerAccount"},
                       {"Name", "User Account"},
                       {"Description", "User Account"},
-                      {"Password", nullptr}};
+                      {"Password", nullptr},
+                      {"RoleId", "Administrator"},
+                      {"Links",
+                       {{"Role",
+                         {{"@odata.id", "/redfish/v1/AccountService/Roles/"
+                                        "Administrator"}}}}}};
 
         entityPrivileges = {
             {boost::beast::http::verb::get,
@@ -415,7 +420,6 @@ class ManagerAccount : public Node
                 }
 
                 auto& links = asyncResp->res.jsonValue["Links"];
-                links = nlohmann::json::object();
                 for (auto& user : users)
                 {
                     const std::string& path =
@@ -482,8 +486,15 @@ class ManagerAccount : public Node
                                         }
                                         const std::string role =
                                             getRoleIdFromPrivilege(*userPriv);
+                                        if (role == "")
+                                        {
+                                            // workaround fix for 'root' user.
+                                            // use default instead.
+                                            continue;
+                                        }
                                         asyncResp->res.jsonValue["RoleId"] =
                                             role;
+                                        links = nlohmann::json::object();
                                         links["Role"] = {
                                             {"@odata.id",
                                              "/redfish/v1/AccountService/"
