@@ -61,11 +61,10 @@ class ManagerActionsReset : public Node
                 const std::vector<std::string> &params) override
     {
         // Parse request data to JSON object
-        auto asyncResp = std::make_shared<AsyncResp>(res);
         auto request_json_obj = nlohmann::json::parse(req.body, nullptr, false);
         if (request_json_obj.is_discarded())
         {
-            asyncResp->res.result(boost::beast::http::status::bad_request);
+            res.result(boost::beast::http::status::bad_request);
             return;
         }
 
@@ -89,20 +88,19 @@ class ManagerActionsReset : public Node
                 }
                 else
                 {
-                    asyncResp->res.result(
-                        boost::beast::http::status::bad_request);
+                    res.result(boost::beast::http::status::bad_request);
                     return;
                 }
             }
             else
             {
-                asyncResp->res.result(boost::beast::http::status::bad_request);
+                res.result(boost::beast::http::status::bad_request);
                 return;
             }
         }
         else
         {
-            asyncResp->res.result(boost::beast::http::status::bad_request);
+            res.result(boost::beast::http::status::bad_request);
             return;
         }
     }
@@ -161,8 +159,6 @@ class ManagerActionsReset : public Node
             "xyz.openbmc_project.State.BMC", "/xyz/openbmc_project/state/bmc0",
             "org.freedesktop.DBus.Properties", "GetAll",
             "xyz.openbmc_project.State.BMC");
-        res.jsonValue = Node::json;
-        asyncResp->res.result(boost::beast::http::status::no_content);
     }
 };
 
