@@ -146,7 +146,9 @@ class ManagerActionsReset : public Node
                             "org.freedesktop.DBus.Properties", "Set",
                             "xyz.openbmc_project.State.BMC",
                             "RequestedBMCTransition",
-                            "xyz.openbmc_project.State.BMC.Transition.Reboot");
+                            sdbusplus::message::variant<std::string>{
+                              "xyz.openbmc_project.State.BMC."
+                              "Transition.Reboot"});
                     }
                     else
                     {
