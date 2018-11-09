@@ -145,8 +145,8 @@ class ManagerActionsReset : public Node
                             "xyz.openbmc_project.State.BMC",
                             "RequestedBMCTransition",
                             sdbusplus::message::variant<std::string>{
-                              "xyz.openbmc_project.State.BMC."
-                              "Transition.Reboot"});
+                                "xyz.openbmc_project.State.BMC."
+                                "Transition.Reboot"});
                     }
                     else
                     {
@@ -210,46 +210,74 @@ class Manager : public Node
         res.jsonValue = Node::json;
         auto asyncResp = std::make_shared<AsyncResp>(res);
 
+        BMCWEB_LOG_DEBUG << "Get BMC Firmware Version enter.";
         crow::connections::systemBus->async_method_call(
             [asyncResp](const boost::system::error_code ec,
-                        const GetManagedObjectsType &resp) {
+                        const PropertiesMapType &properties) {
                 if (ec)
                 {
-                    BMCWEB_LOG_ERROR << "Error while getting Software Version";
+                    BMCWEB_LOG_ERROR << "D-Bus response error " << ec;
                     asyncResp->res.result(
                         boost::beast::http::status::internal_server_error);
                     return;
                 }
-
-                for (auto &objPath : resp)
+                PropertiesMapType::const_iterator it;
+                // Get the major version
+                uint16_t majorVersion = 0;
+                uint16_t minorVersion = 0;
+                std::string patchVersion{};
+                it = properties.find("MajorVersion");
+                if (it != properties.end())
                 {
-                    for (auto &interface : objPath.second)
+                    const uint16_t *s =
+                        mapbox::getPtr<const uint16_t>(it->second);
+                    if (nullptr != s)
                     {
-                        if (interface.first ==
-                            "xyz.openbmc_project.Software.Version")
-                        {
-                            for (auto &property : interface.second)
-                            {
-                                if (property.first == "Version")
-                                {
-                                    const std::string *value =
-                                        mapbox::getPtr<const std::string>(
-                                            property.second);
-                                    if (value == nullptr)
-                                    {
-                                        continue;
-                                    }
-                                    asyncResp->res
-                                        .jsonValue["FirmwareVersion"] = *value;
-                                }
-                            }
-                        }
+                        majorVersion = *s;
                     }
                 }
+                // Get the minor version
+                it = properties.find("MinorVersion");
+                if (it != properties.end())
+                {
+                    const uint16_t *s =
+                        mapbox::getPtr<const uint16_t>(it->second);
+                    if (nullptr != s)
+                    {
+                        minorVersion = *s;
+                    }
+                }
+                // Get the patch version
+                it = properties.find("PatchVersion");
+                // Get the major version
+                if (it != properties.end())
+                {
+                    const uint32_t *s =
+                        mapbox::getPtr<const uint32_t>(it->second);
+                    // Get the major version
+                    if (nullptr != s)
+                    {
+                        char buff[6] = {};
+                        uint16_t major = *s / (256 * 256);
+                        uint16_t minor = (*s - major * 256 * 256) / 256;
+                        uint16_t build = (*s - major * 256 * 256 - minor * 256);
+                        patchVersion = std::to_string(major) + "." +
+                                       std::to_string(minor) + "." +
+                                       std::to_string(build);
+                    }
+                }
+                // Format of Firmware Version will be MM.NN-X.Y.Z
+                std::string fwVersion = std::to_string(majorVersion) + "." +
+                                        std::to_string(minorVersion) + "-" +
+                                        patchVersion;
+
+                // Update JSON payload with Bios Version information.
+                asyncResp->res.jsonValue["FirmwareVersion"] = fwVersion;
             },
-            "xyz.openbmc_project.Software.BMC.Updater",
-            "/xyz/openbmc_project/software",
-            "org.freedesktop.DBus.ObjectManager", "GetManagedObjects");
+            "xyz.openbmc_project.Inventory.BMC.Manager",
+            "/xyz/openbmc_project/inventory/bmc/version",
+            "org.freedesktop.DBus.Properties", "GetAll",
+            "xyz.openbmc_project.Inventory.Item.Bmc");
 
         std::string redfishDateTime = getCurrentDateTime("%FT%T%z");
         // insert the colon required by the ISO 8601 standard
