@@ -59,10 +59,10 @@ void getBiosVersion(std::shared_ptr<AsyncResp> asyncResp)
             // Update JSON payload with Bios Version information.
             asyncResp->res.jsonValue["BiosVersion"] = output;
         },
-        "xyz.openbmc_project.Software.Host.Updater",
-        "/xyz/openbmc_project/software/host/inventory",
+        "xyz.openbmc_project.Inventory.Host.Manager",
+        "/xyz/openbmc_project/inventory/host/bios",
         "org.freedesktop.DBus.Properties", "GetAll",
-        "xyz.openbmc_project.Software.Host");
+        "xyz.openbmc_project.Inventory.Item.BiosInfo");
 }
 
 /**
@@ -100,10 +100,10 @@ void getBootPolicy(std::shared_ptr<AsyncResp> asyncResp)
                 }
             }
         },
-        "xyz.openbmc_project.Software.Host.Updater",
-        "/xyz/openbmc_project/software/host/inventory",
+        "xyz.openbmc_project.Inventory.Host.Manager",
+        "/xyz/openbmc_project/inventory/host/bios",
         "org.freedesktop.DBus.Properties", "GetAll",
-        "xyz.openbmc_project.Software.Host.Boot");
+        "xyz.openbmc_project.Inventory.Item.BiosInfo");
 };
 
 /**
@@ -165,10 +165,11 @@ void getProcessorSummary(std::shared_ptr<AsyncResp> asyncResp)
                 }
             }
         },
-        "xyz.openbmc_project.Software.Host.Updater",
-        "/xyz/openbmc_project/software/host/inventory",
+        "xyz.openbmc_project.Inventory.Host.Manager",
+        "/xyz/openbmc_project/inventory/system/chassis0/motherboard0/cpu0/",
+        "processor",
         "org.freedesktop.DBus.Properties", "GetAll",
-        "xyz.openbmc_project.Software.Host.Processor");
+        "xyz.openbmc_project.Inventory.Item.Processor");
 }
 
 /*
@@ -223,10 +224,11 @@ void getMemorySummary(std::shared_ptr<AsyncResp> asyncResp)
                 }
             }
         },
-        "xyz.openbmc_project.Software.Host.Updater",
-        "/xyz/openbmc_project/software/host/inventory",
+        "xyz.openbmc_project.Inventory.Host.Manager",
+        "/xyz/openbmc_project/inventory/system/chassis0/motherboard0/cpu0/"
+        "memory",
         "org.freedesktop.DBus.Properties", "GetAll",
-        "xyz.openbmc_project.Software.Host.Memory");
+        "xyz.openbmc_project.Inventory.Item.Memory");
 }
 
 /**
