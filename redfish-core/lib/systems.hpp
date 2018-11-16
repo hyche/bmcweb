@@ -936,7 +936,7 @@ class Systems : public Node
         {
             const auto &key = item.key();
             const auto &value = item.value();
-            if (key == "IndicatorLed")
+            if (key == "IndicatorLED")
             {
                 const std::string *reqLedState =
                     value.get_ptr<const std::string *>();
@@ -950,15 +950,15 @@ class Systems : public Node
 
                 // Verify key value
                 std::string dbusLedState;
-                if (*reqLedState == "On")
+                if (*reqLedState == "Lit")
                 {
                     dbusLedState =
-                        "xyz.openbmc_project.Led.Physical.Action.Lit";
+                        "xyz.openbmc_project.Led.Physical.Action.On";
                 }
-                else if (*reqLedState == "Blink")
+                else if (*reqLedState == "Blinking")
                 {
                     dbusLedState =
-                        "xyz.openbmc_project.Led.Physical.Action.Blinking";
+                        "xyz.openbmc_project.Led.Physical.Action.Blink";
                 }
                 else if (*reqLedState == "Off")
                 {
@@ -979,8 +979,7 @@ class Systems : public Node
                 // Update led group
                 BMCWEB_LOG_DEBUG << "Update led group.";
                 crow::connections::systemBus->async_method_call(
-                    [asyncResp{std::move(asyncResp)}](
-                        const boost::system::error_code ec) {
+                    [asyncResp](const boost::system::error_code ec) {
                         if (ec)
                         {
                             BMCWEB_LOG_DEBUG << "DBUS response error " << ec;
@@ -1002,8 +1001,7 @@ class Systems : public Node
                 // Update identify led status
                 BMCWEB_LOG_DEBUG << "Update led SoftwareInventoryCollection.";
                 crow::connections::systemBus->async_method_call(
-                    [asyncResp{std::move(asyncResp)},
-                     reqLedState{std::move(*reqLedState)}](
+                    [asyncResp, reqLedState{*reqLedState}](
                         const boost::system::error_code ec) {
                         if (ec)
                         {
@@ -1013,8 +1011,7 @@ class Systems : public Node
                             return;
                         }
                         BMCWEB_LOG_DEBUG << "Led state update done.";
-                        asyncResp->res.jsonValue["IndicatorLED"] =
-                            std::move(reqLedState);
+                        asyncResp->res.jsonValue["IndicatorLED"] = reqLedState;
                     },
                     "xyz.openbmc_project.LED.Controller.identify",
                     "/xyz/openbmc_project/led/physical/identify",
