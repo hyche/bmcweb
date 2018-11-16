@@ -166,7 +166,7 @@ void getProcessorSummary(std::shared_ptr<AsyncResp> asyncResp)
             }
         },
         "xyz.openbmc_project.Inventory.Host.Manager",
-        "/xyz/openbmc_project/inventory/system/chassis0/motherboard0/cpu0/",
+        "/xyz/openbmc_project/inventory/system/chassis0/motherboard0/cpu0/"
         "processor",
         "org.freedesktop.DBus.Properties", "GetAll",
         "xyz.openbmc_project.Inventory.Item.Processor");
