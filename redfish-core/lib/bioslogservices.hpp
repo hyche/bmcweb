@@ -231,7 +231,25 @@ class BIOSLogServiceActionsClear : public Node
                 const std::vector<std::string> &params) override
     {
         BMCWEB_LOG_DEBUG << "Delete all entries.";
-        // TODO (Hoang): support delete bios log entry
+        auto asyncResp = std::make_shared<AsyncResp>(res);
+        crow::connections::systemBus->async_method_call(
+            [asyncResp](const boost::system::error_code ec) {
+                if (ec)
+                {
+                    BMCWEB_LOG_ERROR << "doClearLog resp_handler got error "
+                                     << ec;
+                    asyncResp->res.result(
+                        boost::beast::http::status::internal_server_error);
+                    return;
+                }
+
+                asyncResp->res.result(boost::beast::http::status::no_content);
+            },
+            "xyz.openbmc_project.Inventory.Host.Manager",
+            "/xyz/openbmc_project/inventory/host",
+            "xyz.openbmc_project.Inventory.Item.HostManager",
+            "ClearBIOSLogEntries");
+
     }
 };
 
