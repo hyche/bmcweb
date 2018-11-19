@@ -33,6 +33,7 @@
 #include "../lib/thermal.hpp"
 #include "../lib/systems.hpp"
 #include "../lib/logservices.hpp"
+#include "../lib/bioslogservices.hpp"
 #include "../lib/ethernetinterfaces.hpp"
 #include "../lib/update_service.hpp"
 #include "webserver_common.hpp"
@@ -94,6 +95,10 @@ class RedfishService
         nodes.emplace_back(std::make_unique<LogEntryCollection>(app));
         nodes.emplace_back(std::make_unique<LogEntry>(app));
         nodes.emplace_back(std::make_unique<LogServiceActionsClear>(app));
+        nodes.emplace_back(std::make_unique<BIOSLogService>(app));
+        nodes.emplace_back(std::make_unique<BIOSLogServiceActionsClear>(app));
+        nodes.emplace_back(std::make_unique<BIOSLogEntryCollection>(app));
+        nodes.emplace_back(std::make_unique<BIOSLogEntry>(app));
 
         for (auto& node : nodes)
         {

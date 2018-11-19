@@ -371,7 +371,7 @@ class LogService : public Node
   public:
     template <typename CrowApp>
     LogService(CrowApp &app) :
-        Node(app, "/redfish/v1/Systems/1/LogServices/<str>/", std::string())
+        Node(app, "/redfish/v1/Systems/1/LogServices/SEL/")
     {
         Node::json["@odata.type"] = "#LogService.v1_1_0.LogService";
         Node::json["@odata.context"] =
@@ -397,18 +397,8 @@ class LogService : public Node
     void doGet(crow::Response &res, const crow::Request &req,
                const std::vector<std::string> &params) override
     {
-        // Check if there is required param, truly entering this shall be
-        // impossible
-        if (params.size() != 1)
-        {
-            res.result(boost::beast::http::status::internal_server_error);
-            res.end();
-            return;
-        }
-
         // Get Log Service name
-        const std::string &name = params[0];
-        Node::json["@odata.id"] = "/redfish/v1/Systems/1/LogServices/" + name;
+        Node::json["@odata.id"] = "/redfish/v1/Systems/1/LogServices/SEL";
 
         // TODO Logging service has not supported get MaxNumberOfRecords
         // property yet hardcode to ERROR_CAP (200) from phosphor-logging.
@@ -457,8 +447,9 @@ class LogServiceCollection : public Node
             "/redfish/v1/$metadata#LogServiceCollection.LogServiceCollection";
         Node::json["Name"] = "Log Services Collection";
         Node::json["Members"] = {
-            {{"@odata.id", "/redfish/v1/Systems/1/LogServices/SEL"}}};
-        Node::json["Members@odata.count"] = 1; // TODO There supports only SEL
+            {{"@odata.id", "/redfish/v1/Systems/1/LogServices/SEL"}},
+            {{"@odata.id", "/redfish/v1/Systems/1/LogServices/BIOS"}}};
+        Node::json["Members@odata.count"] = 2;
                                                // (System Event Log)
 
         entityPrivileges = {
