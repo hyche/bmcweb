@@ -344,6 +344,7 @@ class SessionService : public Node
             crow::persistent_data::SessionStore::getInstance()
                 .getTimeoutInSeconds();
         Node::json["ServiceEnabled"] = true;
+        Node::json["Status"] = {{"State", "Enabled"}, {"Health", "OK"}};
 
         entityPrivileges = {
             {boost::beast::http::verb::get, {{"Login"}}},
