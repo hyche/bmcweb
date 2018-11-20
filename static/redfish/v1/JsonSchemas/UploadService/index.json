@@ -1,0 +1,20 @@
+{
+    "@odata.context": "/redfish/v1/$metadata#JsonSchemaFile.JsonSchemaFile",
+    "@odata.id": "/redfish/v1/JSONSchemas/UploadService",
+    "@odata.type": "#JsonSchemaFile.v1_0_2.JsonSchemaFile",
+    "Name": "UploadService Schema File",
+    "Schema": "#UploadService.UploadService",
+    "Description": "UploadService Schema File Location",
+    "Id": "UploadService",
+    "Languages": [
+        "en"
+    ],
+    "Languages@odata.count": 1,
+    "Location": [
+        {
+            "Language": "en",
+            "Uri": "/redfish/v1/JSONSchemas/UploadService/UploadService.json"
+        }
+    ],
+    "Location@odata.count": 1
+}

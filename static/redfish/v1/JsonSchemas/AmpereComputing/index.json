@@ -1,0 +1,20 @@
+{
+    "@odata.context": "/redfish/v1/$metadata#JsonSchemaFile.JsonSchemaFile",
+    "@odata.id": "/redfish/v1/JSONSchemas/AmpereComputing",
+    "@odata.type": "#JsonSchemaFile.v1_0_2.JsonSchemaFile",
+    "Name": "AmpereComputing Schema File",
+    "Schema": "#AmpereComputing.AmpereComputing",
+    "Description": "AmpereComputing Schema File Location",
+    "Id": "AmpereComputing",
+    "Languages": [
+        "en"
+    ],
+    "Languages@odata.count": 1,
+    "Location": [
+        {
+            "Language": "en",
+            "Uri": "/redfish/v1/JSONSchemas/AmpereComputing/AmpereComputing.json"
+        }
+    ],
+    "Location@odata.count": 1
+}

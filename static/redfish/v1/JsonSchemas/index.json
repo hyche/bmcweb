@@ -4,13 +4,16 @@
   "@odata.type": "#JsonSchemaFileCollection.JsonSchemaFileCollection",
   "Name": "JsonSchemaFile Collection",
   "Description": "Collection of JsonSchemaFiles",
-  "Members@odata.count": 69,
+  "Members@odata.count": 71,
   "Members": [
     {
       "@odata.id": "/redfish/v1/JsonSchemas/AccountService/"
     },
     {
       "@odata.id": "/redfish/v1/JsonSchemas/ActionInfo/"
+    },
+    {
+      "@odata.id": "/redfish/v1/JsonSchemas/AmpereComputing/"
     },
     {
       "@odata.id": "/redfish/v1/JsonSchemas/Assembly/"
@@ -194,6 +197,9 @@
     },
     {
       "@odata.id": "/redfish/v1/JsonSchemas/UpdateService/"
+    },
+    {
+      "@odata.id": "/redfish/v1/JsonSchemas/UploadService/"
     },
     {
       "@odata.id": "/redfish/v1/JsonSchemas/VLanNetworkInterface/"

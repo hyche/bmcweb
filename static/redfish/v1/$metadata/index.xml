@@ -22,6 +22,10 @@
         <edmx:Include Namespace="ActionInfo.v1_0_2"/>
         <edmx:Include Namespace="ActionInfo.v1_0_3"/>
     </edmx:Reference>
+    <edmx:Reference Uri="/redfish/v1/schema/AmpereComputing_v1.xml">
+        <edmx:Include Namespace="AmpereComputing"/>
+        <edmx:Include Namespace="AmpereComputing.v1_0_0"/>
+    </edmx:Reference>
     <edmx:Reference Uri="/redfish/v1/schema/Assembly_v1.xml">
         <edmx:Include Namespace="Assembly"/>
         <edmx:Include Namespace="Assembly.v1_0_0"/>
@@ -687,6 +691,7 @@
         <edmx:Include Namespace="ServiceRoot.v1_2_1"/>
         <edmx:Include Namespace="ServiceRoot.v1_3_0"/>
         <edmx:Include Namespace="ServiceRoot.v1_3_1"/>
+        <edmx:Include Namespace="ServiceRoot.v1_3_2"/>
     </edmx:Reference>
     <edmx:Reference Uri="/redfish/v1/schema/Session_v1.xml">
         <edmx:Include Namespace="Session"/>
@@ -831,6 +836,10 @@
         <edmx:Include Namespace="UpdateService.v1_1_2"/>
         <edmx:Include Namespace="UpdateService.v1_2_0"/>
         <edmx:Include Namespace="UpdateService.v1_2_1"/>
+    </edmx:Reference>
+    <edmx:Reference Uri="/redfish/v1/schema/UploadService_v1.xml">
+        <edmx:Include Namespace="UploadService"/>
+        <edmx:Include Namespace="UploadService.v1_0_0"/>
     </edmx:Reference>
     <edmx:Reference Uri="/redfish/v1/schema/VirtualMedia_v1.xml">
         <edmx:Include Namespace="VirtualMedia"/>

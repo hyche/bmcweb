@@ -31,6 +31,9 @@
   <edmx:Reference Uri="http://redfish.dmtf.org/schemas/v1/AccountService_v1.xml">
     <edmx:Include Namespace="AccountService"/>
   </edmx:Reference>
+  <edmx:Reference Uri="http://redfish.dmtf.org/schemas/v1/AmpereComputing_v1.xml">
+    <edmx:Include Namespace="AmpereComputing"/>
+  </edmx:Reference>
   <edmx:Reference Uri="http://redfish.dmtf.org/schemas/v1/ComputerSystemCollection_v1.xml">
     <edmx:Include Namespace="ComputerSystemCollection"/>
   </edmx:Reference>
@@ -383,6 +386,19 @@
       <Annotation Term="Redfish.OwningEntity" String="DMTF"/>
       <Annotation Term="OData.Description" String="This version was created to add a missing Redfish.Required term to the Sessions link."/>
       <EntityType Name="ServiceRoot" BaseType="ServiceRoot.v1_3_0.ServiceRoot"/>
+    </Schema>
+
+    <Schema xmlns="http://docs.oasis-open.org/odata/ns/edm" Namespace="ServiceRoot.v1_3_2">
+      <Annotation Term="Redfish.OwningEntity" String="DMTF"/>
+      <Annotation Term="OData.Description" String="This version was created to add a link to OEM (AmpereComputing) resource."/>
+      <EntityType Name="ServiceRoot" BaseType="ServiceRoot.v1_3_1.ServiceRoot">
+        <NavigationProperty Name="AmpereComputing" Type="AmpereComputing.AmpereComputing" ContainsTarget="true" Nullable="false">
+          <Annotation Term="OData.Permissions" EnumMember="OData.Permission/Read"/>
+          <Annotation Term="OData.Description" String="This is a link to the AmpereComputing resource."/>
+          <Annotation Term="OData.LongDescription" String="The classes structure shall only contain a reference to a resource that complies to the AmpereComputing schema."/>
+          <Annotation Term="OData.AutoExpandReferences"/>
+        </NavigationProperty>
+      </EntityType>
     </Schema>
 
   </edmx:DataServices>

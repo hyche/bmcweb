@@ -1,5 +1,6 @@
 /*
 // Copyright (c) 2018 Intel Corporation
+// Copyright (c) 2018 Ampere Computing LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -37,6 +38,8 @@
 #include "../lib/ethernetinterfaces.hpp"
 #include "../lib/update_service.hpp"
 #include "../lib/simplestorage.hpp"
+#include "../lib/ampere_computing.hpp"
+#include "../lib/upload_service.hpp"
 #include "webserver_common.hpp"
 
 namespace redfish
@@ -100,9 +103,10 @@ class RedfishService
         nodes.emplace_back(std::make_unique<BIOSLogServiceActionsClear>(app));
         nodes.emplace_back(std::make_unique<BIOSLogEntryCollection>(app));
         nodes.emplace_back(std::make_unique<BIOSLogEntry>(app));
-
         nodes.emplace_back(std::make_unique<SimpleStorageCollection>(app));
         nodes.emplace_back(std::make_unique<SimpleStorage>(app));
+        nodes.emplace_back(std::make_unique<AmpereComputing>(app));
+        nodes.emplace_back(std::make_unique<UploadService>(app));
 
         for (auto& node : nodes)
         {

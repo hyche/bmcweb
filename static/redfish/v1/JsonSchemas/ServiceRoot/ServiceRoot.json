@@ -165,6 +165,11 @@
                     "longDescription": "The classes structure shall only contain a reference to a resource that complies to the AccountService schema.",
                     "readonly": true
                 },
+                "AmpereComputing": {
+                    "description": "This is a link to the (OEM) Ampere Computing Service.",
+                    "longDescription": "The classes structure shall only contain a reference to a resource that complies to the AmpereComputing schema.",
+                    "readonly": true
+                },
                 "Chassis": {
                     "$ref": "http://redfish.dmtf.org/schemas/v1/ChassisCollection.json#/definitions/ChassisCollection",
                     "description": "This is a link to a collection of Chassis.",
@@ -313,5 +318,5 @@
         }
     },
     "owningEntity": "DMTF",
-    "title": "#ServiceRoot.v1_3_1.ServiceRoot"
+    "title": "#ServiceRoot.v1_3_2.ServiceRoot"
 }

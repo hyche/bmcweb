@@ -27,7 +27,7 @@ class ServiceRoot : public Node
   public:
     ServiceRoot(CrowApp& app) : Node(app, "/redfish/v1/")
     {
-        Node::json["@odata.type"] = "#ServiceRoot.v1_1_1.ServiceRoot";
+        Node::json["@odata.type"] = "#ServiceRoot.v1_3_2.ServiceRoot";
         Node::json["@odata.id"] = "/redfish/v1/";
         Node::json["@odata.context"] =
             "/redfish/v1/$metadata#ServiceRoot.ServiceRoot";
@@ -38,6 +38,8 @@ class ServiceRoot : public Node
             {"@odata.id", "/redfish/v1/SessionService/Sessions"}};
         Node::json["JsonSchemas"] =
             {{"@odata.id", "/redfish/v1/JsonSchemas"}};
+        Node::json["AmpereComputing"] =
+            {{"@odata.id", "/redfish/v1/AmpereComputing"}};
 
         Node::json["UUID"] = getUuid();
 
