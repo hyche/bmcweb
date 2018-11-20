@@ -825,6 +825,8 @@ class Systems : public Node
         Node::json["Description"] = "Computer System";
         Node::json["LogServices"] = {
             {"@odata.id", "/redfish/v1/Systems/1/LogServices"}};
+        Node::json["SimpleStorage"] = {
+            {"@odata.id", "/redfish/v1/Systems/1/SimpleStorage"}};
         Node::json["EthernetInterfaces"] = {
             {"@odata.id", "/redfish/v1/Systems/1/EthernetInterfaces"}};
         Node::json["Links"]["Chassis"] = {

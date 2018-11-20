@@ -36,6 +36,7 @@
 #include "../lib/bioslogservices.hpp"
 #include "../lib/ethernetinterfaces.hpp"
 #include "../lib/update_service.hpp"
+#include "../lib/simplestorage.hpp"
 #include "webserver_common.hpp"
 
 namespace redfish
@@ -99,6 +100,9 @@ class RedfishService
         nodes.emplace_back(std::make_unique<BIOSLogServiceActionsClear>(app));
         nodes.emplace_back(std::make_unique<BIOSLogEntryCollection>(app));
         nodes.emplace_back(std::make_unique<BIOSLogEntry>(app));
+
+        nodes.emplace_back(std::make_unique<SimpleStorageCollection>(app));
+        nodes.emplace_back(std::make_unique<SimpleStorage>(app));
 
         for (auto& node : nodes)
         {
