@@ -148,7 +148,7 @@ class NetworkProtocol : public Node
                 {
                     for (auto& kv : protocolToDBus)
                     {
-                        if (kv.second.serviceName ==
+                        if (kv.second.serviceName !=
                             std::get<NET_PROTO_UNIT_NAME>(unit))
                         {
                             continue;
