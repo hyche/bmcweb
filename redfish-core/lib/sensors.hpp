@@ -360,9 +360,11 @@ void objectInterfacesToJson(
     }
     // Map of dbus interface name, dbus property name and redfish property_name
     std::vector<std::tuple<const char*, const char*, const char*>> properties;
-    properties.reserve(7);
+    properties.reserve(8);
 
     properties.emplace_back("xyz.openbmc_project.Sensor.Value", "Value", unit);
+    properties.emplace_back("xyz.openbmc_project.Sensor.Value", "SensorID",
+                            "SensorNumber");
     properties.emplace_back("xyz.openbmc_project.Sensor.Threshold.Warning",
                             "WarningHigh", "UpperThresholdNonCritical");
     properties.emplace_back("xyz.openbmc_project.Sensor.Threshold.Warning",
@@ -414,7 +416,18 @@ void objectInterfacesToJson(
 
                 if (int64Value != nullptr)
                 {
-                    auto value = *int64Value * std::pow(10, scaleMultiplier);
+                    auto value = 0;
+
+                    // Don't need to adjust the value of Sensor ID
+                    if (std::get<1>(p) == "SensorID")
+                    {
+                        value = *int64Value;
+                    }
+                    else
+                    {
+                        value = *int64Value * std::pow(10, scaleMultiplier);
+                    }
+
                     if (forceToInt || scaleMultiplier >= 0)
                     {
                         valueIt = static_cast<int64_t>(value);
