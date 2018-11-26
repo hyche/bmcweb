@@ -363,8 +363,6 @@ void objectInterfacesToJson(
     properties.reserve(8);
 
     properties.emplace_back("xyz.openbmc_project.Sensor.Value", "Value", unit);
-    properties.emplace_back("xyz.openbmc_project.Sensor.Value", "SensorID",
-                            "SensorNumber");
     properties.emplace_back("xyz.openbmc_project.Sensor.Threshold.Warning",
                             "WarningHigh", "UpperThresholdNonCritical");
     properties.emplace_back("xyz.openbmc_project.Sensor.Threshold.Warning",
@@ -384,6 +382,13 @@ void objectInterfacesToJson(
                                 "MinReadingRangeTemp");
         properties.emplace_back("xyz.openbmc_project.Sensor.Value", "MaxValue",
                                 "MaxReadingRangeTemp");
+        properties.emplace_back("xyz.openbmc_project.Sensor.Value", "SensorID",
+                                "SensorNumber");
+    }
+    else if (sensorType == "voltage")
+    {
+        properties.emplace_back("xyz.openbmc_project.Sensor.Value", "SensorID",
+                                "SensorNumber");
     }
     else if (sensorType == "power")
     {
