@@ -127,6 +127,7 @@ class SimpleStorage : public Node
         Node::json["@odata.id"] = "/redfish/v1/Systems/1/SimpleStorage/1";
         Node::json["Name"] = "Simple Storage Controller";
         Node::json["Description"] = "System SATA";
+        Node::json["Id"] = "1";
 
         entityPrivileges = {
             {boost::beast::http::verb::get, {{"Login"}}},
@@ -167,9 +168,9 @@ class SimpleStorageCollection : public Node
                                        "$metadata#SimpleStorageCollection."
                                        "SimpleStorageCollection";
         Node::json["Name"] = "Simple Storage Collection";
-        Node::json["Id"] = "SimpleStorage";
-        Node::json["Members"] = {
-            {"@odata.id", "/redfish/v1/Systems/1/SimpleStorage/1"}};
+        Node::json["Members"] = {{
+            {"@odata.id", "/redfish/v1/Systems/1/SimpleStorage/1"}}};
+        Node::json["Members@odata.count"] = 1;
 
         entityPrivileges = {
             {boost::beast::http::verb::get, {{"Login"}}},
@@ -188,6 +189,7 @@ class SimpleStorageCollection : public Node
                const std::vector<std::string> &params) override
     {
         res.jsonValue = Node::json;
+        res.jsonValue["@odata.id"] = "/redfish/v1/Systems/1/SimpleStorage";
         res.end();
     }
 };
