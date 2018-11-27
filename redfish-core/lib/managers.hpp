@@ -279,6 +279,45 @@ class Manager : public Node
             "org.freedesktop.DBus.Properties", "GetAll",
             "xyz.openbmc_project.Inventory.Item.Bmc");
 
+        BMCWEB_LOG_DEBUG << "Get  status enter.";
+        res.jsonValue["CommandShell"] = {
+            {"ConnectTypesSupported", nlohmann::json::array()},
+            {"MaxConcurrentSessions", 64}, // TODO(Hy): Retrieve real data
+            {"ServiceEnabled", true} // true only when all protocols are enabled
+        };
+        crow::connections::systemBus->async_method_call(
+            [asyncResp](const boost::system::error_code ec,
+                        const sdbusplus::message::variant<std::string> &resp) {
+                if (ec)
+                {
+                    messages::addMessageToJson(asyncResp->res.jsonValue,
+                                               messages::internalError(),
+                                               "/CommandShell/SSH");
+                    return;
+                }
+
+                const std::string *state =
+                    mapbox::getPtr<const std::string>(resp);
+                if (state == nullptr)
+                {
+                    messages::addMessageToJson(asyncResp->res.jsonValue,
+                                               messages::internalError(),
+                                               "/CommandShell/SSH");
+                    return;
+                }
+
+                auto &commandShell = asyncResp->res.jsonValue["CommandShell"];
+                commandShell["ConnectTypesSupported"].emplace_back("SSH");
+                if (*state != "active")
+                {
+                    commandShell["ServiceEnabled"] = false;
+                }
+            },
+            "org.freedesktop.systemd1",
+            "/org/freedesktop/systemd1/unit/dropbear_2esocket",
+            "org.freedesktop.DBus.Properties", "Get",
+            "org.freedesktop.systemd1.Unit", "ActiveState");
+
         std::string redfishDateTime = getCurrentDateTime("%FT%T%z");
         // insert the colon required by the ISO 8601 standard
         redfishDateTime.insert(redfishDateTime.end() - 2, ':');
