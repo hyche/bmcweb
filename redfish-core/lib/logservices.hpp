@@ -25,14 +25,148 @@
 namespace redfish
 {
 
-using GetManagedObjectsType = boost::container::flat_map<
+using GetManagedObjectsTypes = boost::container::flat_map<
     sdbusplus::message::object_path,
     boost::container::flat_map<
         std::string,
         boost::container::flat_map<
             std::string, sdbusplus::message::variant<
                              std::string, bool, uint8_t, int16_t, uint16_t,
-                             int32_t, uint32_t, int64_t, uint64_t, double>>>>;
+                             int32_t, uint32_t, int64_t, uint64_t, double,
+                             std::vector<std::string>>>>>;
+
+/** @brief A fixed array of sensor type - following the LogEntry schema  */
+constexpr std::array<const char *, 46> sensorTypeList{
+    "Reserved",                            // 0x00
+    "Temperature",                         // 0x01
+    "Voltage",                             // 0x02
+    "Current",                             // 0x03
+    "Fan",                                 // 0x04
+    "Physical Chassis Security",           // 0x05
+    "Platform Security Violation Attempt", // 0x06
+    "Processor",                           // 0x07
+    "Power Supply / Converter",            // 0x08
+    "PowerUnit",                           // 0x09
+    "CoolingDevice",                       // 0x0a
+    "Other Units-based Sensor",            // 0x0b
+    "Memory",                              // 0x0c
+    "Drive Slot/Bay",                      // 0x0d
+    "POST Memory Resize",                  // 0x0e
+    "System Firmware Progress",            // 0x0f
+    "Event Logging Disabled",              // 0x10
+    "Watchdog",                            // 0x11
+    "System Event",                        // 0x12
+    "Critical Interrupt",                  // 0x13
+    "Button/Switch",                       // 0x14
+    "Module/Board",                        // 0x15
+    "Microcontroller/Coprocessor",         // 0x16
+    "Add-in Card",                         // 0x17
+    "Chassis",                             // 0x18
+    "ChipSet",                             // 0x19
+    "Other FRU",                           // 0x1a
+    "Cable/Interconnect",                  // 0x1b
+    "Terminator",                          // 0x1c
+    "SystemBoot/Restart",                  // 0x1d
+    "Boot Error",                          // 0x1e
+    "BaseOSBoot/InstallationStatus",       // 0x1f
+    "OS Stop/Shutdown",                    // 0x20
+    "Slot/Connector",                      // 0x21
+    "System ACPI PowerState",              // 0x22
+    "Reserved",                            // 0x23
+    "Platform Alert",                      // 0x24
+    "Entity Presence",                     // 0x25
+    "Monitor ASIC/IC",                     // 0x26
+    "LAN",                                 // 0x27
+    "Management Subsystem Health",         // 0x28
+    "Battery",                             // 0x29
+    "Reserved",                            // 0x2a
+    "Version Change",                      // 0x2b
+    "FRUState",                            // 0x2c
+    "OEM"                                  // 0xc0
+};
+
+inline std::string getEventDirType(uint16_t data)
+{
+    uint8_t eventDir = 0x0;
+    uint8_t eventType = 0x0;
+    std::string ret = "";
+
+    eventDir = (data & 0x80);
+    eventType = (data & 0x3F);
+
+    if (eventDir)
+    {
+        ret = "Deassertion";
+    }
+    else
+    {
+        ret = "Assertion";
+    }
+
+    // Following the SEL spec for the Event Type value
+    // 0x01 - Threshold
+    // 0x02:0x0C - Discrete
+    // 0x6F - Sensor-specific
+    // Others will be OEM
+    if (eventType == 0x1)
+    {
+        ret += " Threshold";
+    }
+    else if ((eventType >= 0x2) && (eventType <= 0x0C))
+    {
+        ret += " Discrete";
+    }
+    else if (eventType == 0x6F)
+    {
+        ret += " Sensor-specific";
+    }
+    else
+    {
+        ret += " OEM";
+    }
+
+    return ret;
+}
+
+inline std::string getSELSpecificInfo(const std::string &s, uint8_t field)
+{
+    std::string ret = "";
+    std::string subSEL = "";
+    uint16_t data;
+
+    // The format of AdditionalData for SEL will be:
+    // STRING=XX XX XX XX XX XX XX XX XX XX XX XX XX XX XX XX
+    switch (field)
+    {
+        case 0:
+            // Request getting the Sensor Type info
+            // It will be the byte 11 of SEL info
+            subSEL = s.substr(37, 2);
+            data = std::stoi(subSEL, nullptr, 16);
+            BMCWEB_LOG_DEBUG << "-> Byte 11 0x" << data;
+            ret = sensorTypeList[data];
+            break;
+        case 1:
+            // Request getting the Sensor Number info
+            // It will be the byte 12 of SEL info
+            subSEL = s.substr(40, 2);
+            BMCWEB_LOG_DEBUG << "-> Byte 12 0x" << data;
+            ret = subSEL;
+            break;
+        case 2:
+            // Request getting the Event Type info
+            // It will be the byte 13 of SEL info
+            subSEL = s.substr(43, 2);
+            data = std::stoi(subSEL, nullptr, 16);
+            BMCWEB_LOG_DEBUG << "-> Byte 13 0x" << data;
+            ret = getEventDirType(data);
+            break;
+        default: // Have not support other fields yet
+            break;
+    }
+
+    return ret;
+}
 
 inline std::string translateSeverityDbusToRedfish(const std::string &s)
 {
@@ -119,7 +253,7 @@ class LogEntry : public Node
         auto asyncResp = std::make_shared<AsyncResp>(res);
         crow::connections::systemBus->async_method_call(
             [asyncResp, entryId](const boost::system::error_code ec,
-                                 const GetManagedObjectsType &resp) {
+                                 const GetManagedObjectsTypes &resp) {
                 if (ec)
                 {
                     // TODO Handle for specific error code
@@ -190,6 +324,26 @@ class LogEntry : public Node
                                     asyncResp->res.jsonValue["Severity"] =
                                         translateSeverityDbusToRedfish(
                                             *severity);
+                                }
+                            }
+                            else if (propertyMap.first == "AdditionalData")
+                            {
+                                const std::vector<std::string> *addData =
+                                    mapbox::getPtr<
+                                        const std::vector<std::string>>(
+                                        propertyMap.second);
+                                if (addData != nullptr)
+                                {
+                                    std::string selData =
+                                        (std::string)addData->at(1);
+                                    asyncResp->res.jsonValue["MessageId"] =
+                                        getSELSpecificInfo(selData, 2);
+                                    asyncResp->res.jsonValue["SensorType"] =
+                                        getSELSpecificInfo(selData, 0);
+                                    asyncResp->res.jsonValue["SensorNumber"] =
+                                        std::stoi(
+                                            getSELSpecificInfo(selData, 1),
+                                            nullptr, 10);
                                 }
                             }
                             else if (propertyMap.first == "Message")
@@ -281,7 +435,7 @@ class LogEntryCollection : public Node
         auto asyncResp = std::make_shared<AsyncResp>(res);
         crow::connections::systemBus->async_method_call(
             [asyncResp](const boost::system::error_code ec,
-                        GetManagedObjectsType &resp) {
+                        GetManagedObjectsTypes &resp) {
                 if (ec)
                 {
                     // TODO Handle for specific error code
@@ -450,7 +604,7 @@ class LogServiceCollection : public Node
             {{"@odata.id", "/redfish/v1/Systems/1/LogServices/SEL"}},
             {{"@odata.id", "/redfish/v1/Systems/1/LogServices/BIOS"}}};
         Node::json["Members@odata.count"] = 2;
-                                               // (System Event Log)
+        // (System Event Log)
 
         entityPrivileges = {
             {boost::beast::http::verb::get, {{"Login"}}},
