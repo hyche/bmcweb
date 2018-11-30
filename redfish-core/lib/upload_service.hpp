@@ -102,7 +102,7 @@ class UploadService : public Node
         // to trigger appropriate handling:
         // i.e. decode SMBIOS info, verify file integrity...
         std::string filepath(
-            "/tmp/" +
+            "/tmp/smbios/" +
             boost::uuids::to_string(boost::uuids::random_generator()()));
         BMCWEB_LOG_DEBUG << "Writing file to " << filepath;
         std::ofstream out(filepath, std::ofstream::out | std::ofstream::binary |
