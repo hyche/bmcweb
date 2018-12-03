@@ -52,6 +52,25 @@ using UnitStruct =
                std::string, sdbusplus::message::object_path, uint32_t,
                std::string, sdbusplus::message::object_path>;
 
+struct ServiceConfiguration
+{
+    const char* servicePath;
+    const char* socketPath;
+};
+
+const static boost::container::flat_map<boost::beast::string_view,
+                                        ServiceConfiguration>
+    protocolToDBus{
+        {"SSH",
+         {"/org/freedesktop/systemd1/unit/dropbear_2eservice",
+          "/org/freedesktop/systemd1/unit/dropbear_2esocket"}},
+        {"HTTPS",
+         {"/org/freedesktop/systemd1/unit/phosphor_2dgevent_2eservice",
+          "/org/freedesktop/systemd1/unit/phosphor_2dgevent_2esocket"}},
+        {"IPMI",
+         {"/org/freedesktop/systemd1/unit/phosphor_2dipmi_2dnet_2eservice",
+          "/org/freedesktop/systemd1/unit/phosphor_2dipmi_2dnet_2esocket"}}};
+
 class NetworkProtocol : public Node
 {
   public:
@@ -89,6 +108,27 @@ class NetworkProtocol : public Node
         getData(asyncResp);
     }
 
+    void doPatch(crow::Response& res, const crow::Request& req,
+                 const std::vector<std::string>& params) override
+    {
+        std::shared_ptr<AsyncResp> asyncResp = std::make_shared<AsyncResp>(res);
+
+        nlohmann::json patchRequest;
+        if (!json_util::processJsonFromRequest(res, req, patchRequest))
+        {
+            return;
+        }
+
+        for (const auto& item : patchRequest.items())
+        {
+            const std::string& key = item.key();
+            if (protocolToDBus.find(key.c_str()) != protocolToDBus.end())
+            {
+                changeProtocolInfo(asyncResp, key, item.value());
+            }
+        }
+    }
+
     std::string getHostName() const
     {
         std::string hostName;
@@ -108,14 +148,9 @@ class NetworkProtocol : public Node
         Node::json["FQDN"] = hostName + DOMAIN_NAME;
         asyncResp->res.jsonValue = Node::json;
 
-        for (auto& kv : boost::container::flat_map<const char*, const char*>{
-                 {"SSH", "/org/freedesktop/systemd1/unit/dropbear_2esocket"},
-                 {"HTTPS",
-                  "/org/freedesktop/systemd1/unit/phosphor_2dgevent_2esocket"},
-                 {"IPMI", "/org/freedesktop/systemd1/unit/"
-                          "phosphor_2dipmi_2dnet_2esocket"}})
+        for (auto& kv : protocolToDBus)
         {
-            const char* socketPath = kv.second;
+            const char* socketPath = kv.second.socketPath;
             crow::connections::systemBus->async_method_call(
                 [asyncResp, service{std::string(kv.first)}](
                     const boost::system::error_code ec,
@@ -189,6 +224,87 @@ class NetworkProtocol : public Node
                 "org.freedesktop.systemd1", socketPath,
                 "org.freedesktop.DBus.Properties", "Get",
                 "org.freedesktop.systemd1.Unit", "ActiveState");
+        }
+    }
+
+    void changeProtocolInfo(const std::shared_ptr<AsyncResp>& asyncResp,
+                            const std::string& protocol,
+                            const nlohmann::json& input)
+    {
+        if (!input.is_object())
+        {
+            messages::addMessageToJson(
+                asyncResp->res.jsonValue,
+                messages::propertyValueTypeError(input.dump(), protocol),
+                "/" + protocol);
+            return;
+        }
+
+        for (const auto& item : input.items())
+        {
+            if (item.key() == "ProtocolEnabled")
+            {
+                const bool* protocolEnabled =
+                    item.value().get_ptr<const bool*>();
+
+                if (protocolEnabled == nullptr)
+                {
+                    messages::addMessageToErrorJson(
+                        asyncResp->res.jsonValue,
+                        messages::propertyValueFormatError(item.value().dump(),
+                                                           "ProtocolEnabled"));
+                    return;
+                }
+
+                const auto& conf = protocolToDBus.at(protocol);
+                std::string action = "Start";
+                if (*protocolEnabled == false)
+                {
+                    action = "Stop";
+                }
+                crow::connections::systemBus->async_method_call(
+                    [asyncResp, &protocol](
+                        const boost::system::error_code ec,
+                        const sdbusplus::message::object_path objectPath) {
+                        if (ec)
+                        {
+                            messages::addMessageToJson(
+                                asyncResp->res.jsonValue,
+                                messages::internalError(), "/" + protocol);
+                            return;
+                        }
+                        messages::addMessageToJson(asyncResp->res.jsonValue,
+                                                   messages::success(),
+                                                   "/" + protocol);
+                    },
+                    "org.freedesktop.systemd1", conf.socketPath,
+                    "org.freedesktop.systemd1.Unit", action, "replace");
+                if (protocol != "SSH")
+                {
+                    crow::connections::systemBus->async_method_call(
+                        [asyncResp, &protocol](
+                            const boost::system::error_code ec,
+                            const sdbusplus::message::object_path objectPath) {
+                            if (ec)
+                            {
+                                messages::addMessageToJson(
+                                    asyncResp->res.jsonValue,
+                                    messages::internalError(), "/" + protocol);
+                                return;
+                            }
+                        },
+                        "org.freedesktop.systemd1", conf.servicePath,
+                        "org.freedesktop.systemd1.Unit", action, "replace");
+                }
+            }
+            else
+            {
+                messages::addMessageToErrorJson(
+                    asyncResp->res.jsonValue,
+                    messages::propertyNotWritable(item.key()));
+                asyncResp->res.result(boost::beast::http::status::bad_request);
+                return;
+            }
         }
     }
 };
