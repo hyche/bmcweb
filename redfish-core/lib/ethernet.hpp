@@ -1778,6 +1778,11 @@ class EthernetInterface : public Node
                         handleVlanPatch(ifaceId, propertyIt.value(), ethData,
                                         "/VLAN", asyncResp);
                     }
+                    else if (propertyIt.key() == "InterfaceEnabled")
+                    {
+                        changeInterfaceStatus(ifaceId, propertyIt.value(),
+                                              asyncResp);
+                    }
                     else if (propertyIt.key() == "HostName")
                     {
                         handleHostnamePatch(propertyIt.value(), ethData,
