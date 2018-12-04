@@ -19,6 +19,7 @@
 #include "error_messages.hpp"
 #include "node.hpp"
 
+#include <fstream>
 #include <utils/ampere-utils.hpp>
 
 namespace redfish
@@ -54,6 +55,7 @@ using UnitStruct =
 
 struct ServiceConfiguration
 {
+    const char* socketFile;
     const char* servicePath;
     const char* socketPath;
 };
@@ -62,13 +64,16 @@ const static boost::container::flat_map<boost::beast::string_view,
                                         ServiceConfiguration>
     protocolToDBus{
         {"SSH",
-         {"/org/freedesktop/systemd1/unit/dropbear_2eservice",
+         {"dropbear.socket",
+          "/org/freedesktop/systemd1/unit/dropbear_2eservice",
           "/org/freedesktop/systemd1/unit/dropbear_2esocket"}},
         {"HTTPS",
-         {"/org/freedesktop/systemd1/unit/phosphor_2dgevent_2eservice",
+         {"phosphor-gevent.socket",
+          "/org/freedesktop/systemd1/unit/phosphor_2dgevent_2eservice",
           "/org/freedesktop/systemd1/unit/phosphor_2dgevent_2esocket"}},
         {"IPMI",
-         {"/org/freedesktop/systemd1/unit/phosphor_2dipmi_2dnet_2eservice",
+         {"phosphor-ipmi-net.socket",
+          "/org/freedesktop/systemd1/unit/phosphor_2dipmi_2dnet_2eservice",
           "/org/freedesktop/systemd1/unit/phosphor_2dipmi_2dnet_2esocket"}}};
 
 class NetworkProtocol : public Node
@@ -240,6 +245,7 @@ class NetworkProtocol : public Node
             return;
         }
 
+        const auto& conf = protocolToDBus.at(protocol);
         for (const auto& item : input.items())
         {
             if (item.key() == "ProtocolEnabled")
@@ -256,7 +262,6 @@ class NetworkProtocol : public Node
                     return;
                 }
 
-                const auto& conf = protocolToDBus.at(protocol);
                 std::string action = "Start";
                 if (*protocolEnabled == false)
                 {
@@ -296,6 +301,85 @@ class NetworkProtocol : public Node
                         "org.freedesktop.systemd1", conf.servicePath,
                         "org.freedesktop.systemd1.Unit", action, "replace");
                 }
+            }
+            else if (item.key() == "Port")
+            {
+                const int64_t* portNumber =
+                    item.value().get_ptr<const int64_t*>();
+
+                if (portNumber == nullptr)
+                {
+                    messages::addMessageToErrorJson(
+                        asyncResp->res.jsonValue,
+                        messages::propertyValueFormatError(item.value().dump(),
+                                                           "Port"));
+                    return;
+                }
+
+                std::string socketFile = protocolToDBus.at(protocol).socketFile;
+                std::string confPath = "/lib/systemd/system/" + socketFile;
+                std::fstream stream(confPath.c_str(), std::fstream::in);
+                if (!stream.is_open())
+                {
+                    messages::addMessageToJson(asyncResp->res.jsonValue,
+                                               messages::internalError(),
+                                               "/" + protocol);
+                    return;
+                }
+
+                // read old config
+                std::vector<std::string> config;
+                std::string line;
+                while (std::getline(stream, line))
+                {
+                    if (boost::beast::string_view(line.c_str(), 6) == "Listen")
+                    {
+                        std::string listen = line.substr(0, line.find("=") + 1);
+                        line = listen + std::to_string(*portNumber);
+                    }
+                    config.emplace_back(line);
+                }
+                stream.close();
+
+                // rewrite config
+                stream.open(confPath.c_str(), std::fstream::out);
+                if (!stream.is_open())
+                {
+                    messages::addMessageToJson(asyncResp->res.jsonValue,
+                                               messages::internalError(),
+                                               "/" + protocol);
+                    return;
+                }
+                for (std::string i : config)
+                {
+                    stream << i << "\n";
+                }
+                stream.close();
+
+                // stop and reload services
+                if (protocol != "SSH")
+                {
+                    // no async here, since we need it stopped before reloading
+                    auto m = crow::connections::systemBus->new_method_call(
+                        "org.freedesktop.systemd1", conf.servicePath,
+                        "org.freedesktop.systemd1.Unit", "Stop");
+                    m.append("replace");
+                    crow::connections::systemBus->call(m);
+                }
+                // crow::connections::systemBus->async_method_call(
+                //     [asyncResp, &protocol](
+                //         const boost::system::error_code ec,
+                //         const sdbusplus::message::object_path objectPath) {
+                //         if (ec)
+                //         {
+                //             messages::addMessageToJson(
+                //                 asyncResp->res.jsonValue,
+                //                 messages::internalError(), "/" + protocol);
+                //             return;
+                //         }
+                //     },
+                //     "org.freedesktop.systemd1", "/org/freedesktop/systemd1",
+                //     "org.freedesktop.systemd1.Manager", "Reload");
             }
             else
             {
